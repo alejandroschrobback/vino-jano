@@ -1,0 +1,1820 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CAVA Anita y Jano · v5</title>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Cormorant+Garamond:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    /* Monochrome palette */
+    --vj-bg: #FFFFFF;
+    --vj-bg-alt: #F7F7F7;
+    --vj-panel: #FFFFFF;
+    --vj-line: #E5E5E5;
+    --vj-line-soft: #F0F0F0;
+    --vj-text: #1A1A1A;
+    --vj-text-2: #4A4A4A;
+    --vj-muted: #6B6B6B;
+    --vj-soft: #9A9A9A;
+    --vj-accent: #1A1A1A;
+    --vj-accent-soft: #F0F0F0;
+  }
+  html,body { margin:0; padding:0; }
+  *, *::before, *::after { box-sizing: border-box; }
+  body {
+    background: var(--vj-bg);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    color: var(--vj-text);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: 'cv11','ss01','ss03';
+  }
+  h1, h2, h3, h4, h5, h6 { letter-spacing: -0.015em; font-weight: 600; }
+  .vj-serif { font-family: 'Cormorant Garamond', 'Playfair Display', Georgia, serif; letter-spacing: 0; font-weight: 600; }
+  button { font-family: inherit; transition: filter .15s ease, background .15s ease, border-color .15s ease, transform .05s ease, box-shadow .15s ease; }
+  button:not(:disabled):active { transform: translateY(1px); }
+  button:not(:disabled):hover { filter: brightness(0.95); }
+  input, select, textarea { font-family: inherit; transition: border-color .12s ease, box-shadow .12s ease; }
+  input:focus, select:focus, textarea:focus { outline: none !important; border-color: var(--vj-text) !important; box-shadow: 0 0 0 3px rgba(26,26,26,0.06) !important; }
+  hr { border: none; border-top: 1px solid var(--vj-line); }
+  ::selection { background: rgba(26,26,26,0.12); color: var(--vj-text); }
+  .scroll::-webkit-scrollbar { width:6px; height:6px; }
+  .scroll::-webkit-scrollbar-thumb { background: var(--vj-line); border-radius: 3px; }
+  .scroll::-webkit-scrollbar-thumb:hover { background: var(--vj-soft); }
+  /* Drag & drop visuals (monochrome) */
+  .vj-dragrow { cursor: grab; }
+  .vj-dragrow:active { cursor: grabbing; }
+  .vj-cell-empty-active { background: #F7F7F7 !important; outline: 2px dashed #1A1A1A; outline-offset: -1px; }
+  .vj-cell-occupied-active { outline: 2px dashed #6B6B6B; outline-offset: -1px; opacity: 0.45; }
+  .vj-cell-drop-over { background: #1A1A1A !important; outline: 2px solid #1A1A1A; }
+  .vj-cell-drop-blocked { background: #E5E5E5 !important; outline: 2px solid #6B6B6B; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useCallback, useMemo, useRef } = React;
+
+const CAVA_GRANDE = { id: "grande", label: "INELRO 177", rows: 15, colsFront: 5, colsBack: 6 };
+const CAJA = { id: "caja", label: "Caja (fuera de cava)", rows: 0, colsFront: 0, colsBack: 0 };
+const CAVAS = [CAVA_GRANDE, CAJA];
+
+const TIPOS = [
+  "Tinto","Blanco","Rosado","Naranja",
+  "Espumante","Champagne","Prosecco","Cava","Crémant","Pétillant Naturel",
+  "Dulce Natural","Cosecha Tardía","Sauternes","Icewine","Passito","Vin Santo",
+  "Jerez / Sherry","Oporto","Madeira","Marsala","Vermut",
+  "Sidra","Sake","Hidromiel","Otro"
+];
+
+const PAISES = ["Afganistán","Albania","Alemania","Andorra","Angola","Arabia Saudita","Argelia","Argentina","Armenia","Australia","Austria","Azerbaiyán","Bahamas","Bangladesh","Bélgica","Belice","Bolivia","Bosnia y Herzegovina","Brasil","Bulgaria","Canadá","Chile","China","Chipre","Colombia","Corea del Norte","Corea del Sur","Costa Rica","Croacia","Cuba","Dinamarca","Ecuador","Egipto","El Salvador","Emiratos Árabes Unidos","Eslovaquia","Eslovenia","España","Estados Unidos","Estonia","Etiopía","Filipinas","Finlandia","Francia","Georgia","Ghana","Grecia","Guatemala","Honduras","Hungría","India","Indonesia","Irak","Irán","Irlanda","Islandia","Israel","Italia","Jamaica","Japón","Jordania","Kazajistán","Kenia","Kuwait","Laos","Letonia","Líbano","Libia","Lituania","Luxemburgo","Madagascar","Malasia","Malta","Marruecos","México","Moldavia","Mónaco","Mongolia","Montenegro","Mozambique","Myanmar","Nepal","Nicaragua","Nigeria","Noruega","Nueva Zelanda","Omán","Países Bajos","Pakistán","Panamá","Paraguay","Perú","Polonia","Portugal","Reino Unido","República Checa","República Dominicana","Rumanía","Rusia","Senegal","Serbia","Singapur","Siria","Sudáfrica","Sudán","Suecia","Suiza","Tailandia","Tanzania","Túnez","Turquía","Ucrania","Uruguay","Venezuela","Vietnam","Yemen","Zambia","Zimbabue"];
+
+// Paleta monocromática: tintos/oscuros = más oscuro, blancos/burbujas = más claro
+const TYPE_COLOR = {
+  "Tinto":"#1A1A1A","Blanco":"#9A9A9A","Rosado":"#6B6B6B","Naranja":"#6B6B6B",
+  "Espumante":"#9A9A9A","Champagne":"#9A9A9A","Prosecco":"#9A9A9A","Cava":"#9A9A9A","Crémant":"#9A9A9A","Pétillant Naturel":"#9A9A9A",
+  "Dulce Natural":"#6B6B6B","Cosecha Tardía":"#6B6B6B","Sauternes":"#9A9A9A","Icewine":"#9A9A9A","Passito":"#4A4A4A","Vin Santo":"#4A4A4A",
+  "Jerez / Sherry":"#4A4A4A","Oporto":"#1A1A1A","Madeira":"#1A1A1A","Marsala":"#1A1A1A","Vermut":"#4A4A4A",
+  "Sidra":"#9A9A9A","Sake":"#9A9A9A","Hidromiel":"#9A9A9A","Otro":"#888"
+};
+const TYPE_BG = {
+  "Tinto":"#F0F0F0","Blanco":"#FAFAFA","Rosado":"#F5F5F5","Naranja":"#F5F5F5",
+  "Espumante":"#FAFAFA","Champagne":"#FAFAFA","Prosecco":"#FAFAFA","Cava":"#FAFAFA","Crémant":"#FAFAFA","Pétillant Naturel":"#FAFAFA",
+  "Dulce Natural":"#F5F5F5","Cosecha Tardía":"#F5F5F5","Sauternes":"#FAFAFA","Icewine":"#FAFAFA","Passito":"#F0F0F0","Vin Santo":"#F0F0F0",
+  "Jerez / Sherry":"#F0F0F0","Oporto":"#F0F0F0","Madeira":"#F0F0F0","Marsala":"#F0F0F0","Vermut":"#F0F0F0",
+  "Sidra":"#FAFAFA","Sake":"#FAFAFA","Hidromiel":"#FAFAFA","Otro":"#F5F5F5"
+};
+
+const STORAGE_KEY = "cava_anita_jano_v1";  // mantengo la misma key, así migra del v1
+const APIKEY_STORAGE = "cava_anthropic_apikey";
+const GIST_TOKEN_KEY = "cava_gist_token";
+const GIST_ID_KEY = "cava_gist_id";
+const GIST_LAST_SYNC_KEY = "cava_gist_last_sync";
+const GIST_AUTO_SYNC_KEY = "cava_gist_auto";
+const COL_WIDTHS_KEY = "cava_col_widths_v1";
+// Anchos por defecto (px) de las columnas del Inventario:
+// [Etiqueta, Bodega, Añada, País, Provincia, Cepa, Tipo, Ubicación, Unid.]
+const DEFAULT_COL_WIDTHS = [240, 170, 60, 100, 130, 140, 90, 130, 60];
+const MIN_COL_WIDTH = 40;
+const GIST_PUSH_DEBOUNCE_MS = 1500;   // tras un cambio local, esperá esto y subí
+const GIST_POLL_MS = 30000;           // chequeá cambios remotos cada 30s
+// (seed Excel removido — el inventario inicial se baja del Gist en el bootstrap)
+const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2);
+
+async function loadDB() {
+  try {
+    const r = localStorage.getItem(STORAGE_KEY);
+    if (r) return JSON.parse(r);
+  } catch (e) {}
+  return { wines: [], consumos: [] };
+}
+async function saveDB(db) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); } catch (e) {}
+}
+
+const emptyForm = (cava="grande", row="", col="", zona="adelante") => ({
+  nombre:"", bodega:"", anada:"", tipo:"Tinto", cepa:"", pais:"Argentina",
+  provincia:"", precio:"", puntuacion:"", maridaje:"", notas:"", foto:"",
+  alcohol:"", tempServicio:"", guarda:"",
+  ojo:"", nariz:"", boca:"", final:"",
+  cava, row, col, zona
+});
+
+// ── Parse precio: "$5.000-$8.000" → 6500 (promedio) o 5000 si es solo uno
+function parsePrecio(p) {
+  if (!p) return 0;
+  const nums = String(p).match(/\d[\d\.\,]*/g);
+  if (!nums) return 0;
+  const vals = nums.map(n => {
+    const clean = n.replace(/\./g,"").replace(",",".");
+    return parseFloat(clean) || 0;
+  }).filter(v => v > 0);
+  if (!vals.length) return 0;
+  return vals.reduce((a,b)=>a+b,0) / vals.length;
+}
+
+// ── CSV parser muy simple (maneja comillas básicas)
+function parseCSV(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+  if (lines.length < 2) return [];
+  const parseLine = (line) => {
+    const out = []; let cur = ""; let q = false;
+    for (let i=0;i<line.length;i++){
+      const c = line[i];
+      if (c === '"') { if (q && line[i+1] === '"'){ cur+='"'; i++; } else q = !q; }
+      else if (c === ',' && !q) { out.push(cur); cur = ""; }
+      else cur += c;
+    }
+    out.push(cur);
+    return out.map(s => s.trim());
+  };
+  const header = parseLine(lines[0]).map(h => h.toLowerCase().replace(/[^a-z0-9]/g,""));
+  const rows = lines.slice(1).map(parseLine);
+  return rows.map(row => {
+    const obj = {};
+    header.forEach((h,i) => { obj[h] = row[i] || ""; });
+    return obj;
+  });
+}
+
+// ── Llamadas a Claude API
+async function callClaude({ apiKey, model="claude-sonnet-4-5", maxTokens=1500, messages }) {
+  const resp = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true"
+    },
+    body: JSON.stringify({ model, max_tokens: maxTokens, messages })
+  });
+  const data = await resp.json();
+  if (!resp.ok) throw new Error(data?.error?.message || `HTTP ${resp.status}`);
+  return data.content?.map(c => c.text||"").join("") || "";
+}
+
+function App() {
+  const [db, setDb] = useState(null);
+  const [tab, setTab] = useState("inventario");
+  const [modal, setModal] = useState(null);
+  const [form, setForm] = useState(emptyForm());
+  const [formErr, setFormErr] = useState("");
+  const [search, setSearch] = useState("");
+  const [filterTipo, setFilterTipo] = useState("");
+  const [filterPais, setFilterPais] = useState("");
+  const [filterAnada, setFilterAnada] = useState("");
+  const [filterCepa, setFilterCepa] = useState("");
+  const [sortCol, setSortCol] = useState("");
+  const [sortDir, setSortDir] = useState("asc");
+  const handleSortClick = (col) => {
+    if (sortCol === col) setSortDir(d => d === "asc" ? "desc" : "asc");
+    else { setSortCol(col); setSortDir("asc"); }
+  };
+  const [saving, setSaving] = useState(false);
+  const [selectedWine, setSelectedWine] = useState(null);
+  const [sugerContext, setSugerContext] = useState("");
+  const [sugerLoading, setSugerLoading] = useState(false);
+  const [sugerResult, setSugerResult] = useState(null);
+  const [confirmModal, setConfirmModal] = useState(null);
+  const [scanError, setScanError] = useState("");
+  const [scanning, setScanning] = useState(false);
+  const [scanImages, setScanImages] = useState([]);
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem(APIKEY_STORAGE) || "");
+  const [apiKeyDraft, setApiKeyDraft] = useState("");
+  const [gistToken, setGistToken] = useState(() => localStorage.getItem(GIST_TOKEN_KEY) || "");
+  const [gistTokenDraft, setGistTokenDraft] = useState("");
+  const [gistId, setGistId] = useState(() => localStorage.getItem(GIST_ID_KEY) || "");
+  const [gistIdDraft, setGistIdDraft] = useState("");
+  const [gistLastSync, setGistLastSync] = useState(() => localStorage.getItem(GIST_LAST_SYNC_KEY) || "");
+  const [gistStatus, setGistStatus] = useState("");
+  const [gistBusy, setGistBusy] = useState(false);
+  const [gistAuto, setGistAuto] = useState(() => {
+    const v = localStorage.getItem(GIST_AUTO_SYNC_KEY);
+    return v === null ? true : v === "1";
+  });
+  const pushTimerRef = useRef(null);
+  const pollTimerRef = useRef(null);
+  const lastHashRef = useRef(null);     // hash de lo último que subimos/bajamos
+  const lastUpdatedAtRef = useRef(null);// updated_at del gist visto
+  const skipNextPushRef = useRef(false);// flag tras un pull para no rebotar
+  const initialPullDoneRef = useRef(false);// no pushear nada hasta haber pullado al menos una vez
+  const [importMsg, setImportMsg] = useState("");
+  const [expanded, setExpanded] = useState(() => new Set());
+  const toggleExpanded = (k) => setExpanded(s => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
+  const [consumoForm, setConsumoForm] = useState({fecha:"",ocasion:"",notaConsumo:"",puntuacionFinal:""});
+  // ── Drag & drop ──
+  const [dragWineId, setDragWineId] = useState(null);
+  const [dropMsg, setDropMsg] = useState("");
+
+  // ── Resize de columnas (Inventario) ──
+  const [colWidths, setColWidths] = useState(() => {
+    try {
+      const raw = localStorage.getItem(COL_WIDTHS_KEY);
+      if (!raw) return [...DEFAULT_COL_WIDTHS];
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed) || parsed.length !== DEFAULT_COL_WIDTHS.length) return [...DEFAULT_COL_WIDTHS];
+      return parsed.map((w,i) => Math.max(MIN_COL_WIDTH, Number(w) || DEFAULT_COL_WIDTHS[i]));
+    } catch (e) { return [...DEFAULT_COL_WIDTHS]; }
+  });
+  const resizeRef = useRef(null); // { idx, startX, startW }
+  const startColResize = (idx, e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    resizeRef.current = { idx, startX: e.clientX, startW: colWidths[idx] };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  };
+  useEffect(() => {
+    const onMove = (e) => {
+      const r = resizeRef.current;
+      if (!r) return;
+      const delta = e.clientX - r.startX;
+      const newW = Math.max(MIN_COL_WIDTH, r.startW + delta);
+      setColWidths(prev => {
+        if (prev[r.idx] === newW) return prev;
+        const next = [...prev];
+        next[r.idx] = newW;
+        return next;
+      });
+    };
+    const onUp = () => {
+      if (!resizeRef.current) return;
+      resizeRef.current = null;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      // Persistir el snapshot final usando el state más fresco
+      setColWidths(prev => { try { localStorage.setItem(COL_WIDTHS_KEY, JSON.stringify(prev)); } catch (e) {} return prev; });
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, []);
+  const resetColWidths = () => {
+    setColWidths([...DEFAULT_COL_WIDTHS]);
+    try { localStorage.removeItem(COL_WIDTHS_KEY); } catch (e) {}
+  };
+
+  useEffect(() => { loadDB().then(setDb); }, []);
+
+  const persist = useCallback(async (newDb) => {
+    setDb(newDb);
+    setSaving(true);
+    await saveDB(newDb);
+    setTimeout(() => setSaving(false), 800);
+  }, []);
+
+  const askConfirm = (msg, onOk) => setConfirmModal({ msg, onOk });
+
+  const saveApiKey = () => {
+    const k = apiKeyDraft.trim();
+    if (!k) return;
+    localStorage.setItem(APIKEY_STORAGE, k);
+    setApiKey(k); setApiKeyDraft("");
+  };
+  const removeApiKey = () => {
+    localStorage.removeItem(APIKEY_STORAGE);
+    setApiKey("");
+  };
+
+  // ── Gist sync ──
+  const saveGistToken = () => {
+    const t = gistTokenDraft.trim();
+    if (!t) return;
+    localStorage.setItem(GIST_TOKEN_KEY, t);
+    setGistToken(t); setGistTokenDraft("");
+    setGistStatus("");
+  };
+  const removeGistToken = () => {
+    localStorage.removeItem(GIST_TOKEN_KEY);
+    setGistToken("");
+    setGistStatus("");
+  };
+  const saveGistId = () => {
+    const id = gistIdDraft.trim();
+    if (!id) return;
+    localStorage.setItem(GIST_ID_KEY, id);
+    setGistId(id); setGistIdDraft("");
+    setGistStatus("");
+  };
+  const removeGistId = () => {
+    localStorage.removeItem(GIST_ID_KEY);
+    setGistId("");
+    setGistStatus("");
+  };
+  const stampSync = () => {
+    const ts = new Date().toISOString();
+    localStorage.setItem(GIST_LAST_SYNC_KEY, ts);
+    setGistLastSync(ts);
+  };
+  // Hash estable del db (para evitar pushes redundantes)
+  const hashDb = (d) => {
+    const s = JSON.stringify(d);
+    let h = 0;
+    for (let i=0; i<s.length; i++) h = ((h<<5) - h + s.charCodeAt(i))|0;
+    return h.toString(36) + ":" + s.length;
+  };
+  // Núcleo del push (sin UI). Devuelve true si pusheó.
+  // IMPORTANTE: requiere gistId. Nunca crea un Gist nuevo (eso causaba duplicación entre dispositivos).
+  // Si necesitás un Gist nuevo, creálo manualmente en gist.github.com y pegá el ID en Configuración.
+  const doPush = async (silent = false) => {
+    if (!gistToken) { if (!silent) setGistStatus("⚠ Falta el token."); return false; }
+    if (!gistId)    { if (!silent) setGistStatus("⚠ Falta el Gist ID. Configuralo antes de subir."); return false; }
+    const snapshot = db;
+    if (!snapshot) return false;
+    const hash = hashDb(snapshot);
+    if (hash === lastHashRef.current) return false; // sin cambios
+    if (!silent) setGistStatus("⏳ Subiendo…");
+    try {
+      const payload = { files: { "cava.json": { content: JSON.stringify(snapshot, null, 2) } } };
+      const url = `https://api.github.com/gists/${gistId}`;
+      const r = await fetch(url, {
+        method: "PATCH",
+        headers: { "Authorization": `Bearer ${gistToken}`, "Accept": "application/vnd.github+json", "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!r.ok) {
+        const t = await r.text();
+        throw new Error(`HTTP ${r.status}: ${t.slice(0,200)}`);
+      }
+      const data = await r.json();
+      lastHashRef.current = hash;
+      lastUpdatedAtRef.current = data.updated_at;
+      stampSync();
+      setGistStatus(`✓ Subido (${snapshot.wines.length} stock · ${snapshot.consumos.length} hist).`);
+      return true;
+    } catch (e) {
+      setGistStatus(`✕ Error subiendo: ${e.message}`);
+      return false;
+    }
+  };
+  // Núcleo del pull. Si onlyIfChanged=true, solo hace fetch full si updated_at difiere del último visto.
+  const doPull = async (onlyIfChanged = false, silent = false) => {
+    if (!gistToken || !gistId) return false;
+    try {
+      const r = await fetch(`https://api.github.com/gists/${gistId}`, {
+        headers: { "Authorization": `Bearer ${gistToken}`, "Accept": "application/vnd.github+json" }
+      });
+      if (!r.ok) {
+        const t = await r.text();
+        throw new Error(`HTTP ${r.status}: ${t.slice(0,200)}`);
+      }
+      const data = await r.json();
+      if (onlyIfChanged && lastUpdatedAtRef.current && data.updated_at === lastUpdatedAtRef.current) {
+        return false; // remote sin cambios desde la última vez
+      }
+      const file = data.files && data.files["cava.json"];
+      if (!file) throw new Error("El Gist no tiene cava.json.");
+      let content = file.content;
+      if (file.truncated && file.raw_url) {
+        const r2 = await fetch(file.raw_url, { headers: { "Authorization": `Bearer ${gistToken}` }});
+        content = await r2.text();
+      }
+      const parsed = JSON.parse(content);
+      if (!parsed.wines || !Array.isArray(parsed.wines)) throw new Error("JSON inválido (falta wines[]).");
+      if (!parsed.consumos) parsed.consumos = [];
+      const newHash = hashDb(parsed);
+      if (newHash === lastHashRef.current) {
+        // El gist tiene exactamente lo mismo; no toco el estado local
+        lastUpdatedAtRef.current = data.updated_at;
+        return false;
+      }
+      skipNextPushRef.current = true; // el persist que viene es por pull, no rebotar
+      await persist(parsed);
+      lastHashRef.current = newHash;
+      lastUpdatedAtRef.current = data.updated_at;
+      stampSync();
+      if (!silent) setGistStatus(`✓ Bajado (${parsed.wines.length} stock · ${parsed.consumos.length} hist).`);
+      return true;
+    } catch (e) {
+      if (!silent) setGistStatus(`✕ Error bajando: ${e.message}`);
+      return false;
+    }
+  };
+  // API expuesta a la UI (bloqueante con confirm para "bajar manual")
+  const subirAGist = async () => {
+    setGistBusy(true);
+    // forzar push aunque el hash coincida (caso "primera vez sin id")
+    if (!gistId) lastHashRef.current = null;
+    await doPush(false);
+    setGistBusy(false);
+  };
+  const bajarDeGist = () => askConfirm(
+    "Esto sobreescribe tu cava actual con la del Gist. ¿Seguro?",
+    async () => {
+      setGistBusy(true);
+      lastHashRef.current = null; // forzar replace
+      lastUpdatedAtRef.current = null;
+      await doPull(false, false);
+      initialPullDoneRef.current = true; // habilitar push automático después del pull manual
+      setGistBusy(false);
+    }
+  );
+
+  // ── AUTO-SYNC ──
+  // Si cambia el gistId, resetear el flag de "pull inicial hecho" para forzar pull antes de push
+  useEffect(() => { initialPullDoneRef.current = false; }, [gistId]);
+
+  // Push debounced después de cada cambio local — bloqueado hasta que haya un pull inicial exitoso
+  useEffect(() => {
+    if (!gistAuto || !gistToken || !gistId || !db) return;
+    if (!initialPullDoneRef.current) return; // esperar al primer pull para no pisar el remoto con el seed local
+    if (skipNextPushRef.current) { skipNextPushRef.current = false; return; }
+    if (pushTimerRef.current) clearTimeout(pushTimerRef.current);
+    pushTimerRef.current = setTimeout(() => { doPush(true); }, GIST_PUSH_DEBOUNCE_MS);
+    return () => { if (pushTimerRef.current) clearTimeout(pushTimerRef.current); };
+  }, [db, gistAuto, gistToken, gistId]);
+
+  // Poll periódico para detectar cambios remotos
+  useEffect(() => {
+    if (!gistAuto || !gistToken || !gistId) return;
+    let cancelled = false;
+    const tick = async () => {
+      if (cancelled) return;
+      if (!gistBusy) {
+        await doPull(true, true);
+        // lastUpdatedAtRef.current se setea solo si el GET fue exitoso. Si quedó null, el fetch falló y NO habilitamos push.
+        if (lastUpdatedAtRef.current) initialPullDoneRef.current = true;
+      }
+    };
+    // Pull inicial al activar auto-sync (silent)
+    tick();
+    pollTimerRef.current = setInterval(tick, GIST_POLL_MS);
+    return () => { cancelled = true; if (pollTimerRef.current) clearInterval(pollTimerRef.current); };
+  }, [gistAuto, gistToken, gistId]);
+
+  // Pull adicional al volver a la pestaña
+  useEffect(() => {
+    if (!gistAuto || !gistToken || !gistId) return;
+    const onVis = () => { if (!document.hidden) doPull(true, true); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [gistAuto, gistToken, gistId]);
+
+  const toggleGistAuto = () => {
+    const v = !gistAuto;
+    setGistAuto(v);
+    localStorage.setItem(GIST_AUTO_SYNC_KEY, v ? "1" : "0");
+    setGistStatus(v ? "✓ Auto-sync activado." : "Auto-sync desactivado.");
+  };
+
+  // ── Scan label ──
+  const onScanFilesChange = (e) => {
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+    Promise.all(files.map(file => new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => {
+        const result = r.result;
+        const data = result.split(",")[1];
+        res({ data, type: "image/jpeg", preview: result });
+      };
+      r.onerror = rej;
+      r.readAsDataURL(file);
+    }))).then(imgs => setScanImages(prev => [...prev, ...imgs]));
+  };
+  const removeImage = (i) => setScanImages(prev => prev.filter((_,idx) => idx !== i));
+  const scanLabel = async () => {
+    if (!scanImages.length) return;
+    if (!apiKey) { setScanError("Falta configurar la API key en Configuración."); return; }
+    setScanning(true); setScanError("");
+    try {
+      const text = await callClaude({
+        apiKey,
+        maxTokens: 1000,
+        messages: [{ role:"user", content: [
+          ...scanImages.map(img => ({ type:"image", source:{ type:"base64", media_type:img.type, data:img.data } })),
+          { type:"text", text:`Analizá estas ${scanImages.length} foto(s) de la misma etiqueta de vino y devolvé SOLO un JSON (sin markdown):\n{"nombre":"","bodega":"","anada":"","tipo":"Tinto","cepa":"","pais":"","provincia":"","alcohol":"","maridaje":""}` }
+        ]}]
+      });
+      const m = text.match(/\{[\s\S]*\}/);
+      if (!m) { setScanError("Respuesta sin JSON: " + text.slice(0,200)); setScanning(false); return; }
+      const parsed = JSON.parse(m[0]);
+      setForm(f => ({
+        ...f,
+        nombre: parsed.nombre || f.nombre,
+        bodega: parsed.bodega || f.bodega,
+        anada: parsed.anada || f.anada,
+        tipo: parsed.tipo || f.tipo,
+        cepa: parsed.cepa || f.cepa,
+        pais: parsed.pais || f.pais,
+        provincia: parsed.provincia || f.provincia,
+        alcohol: parsed.alcohol || f.alcohol,
+        maridaje: parsed.maridaje || f.maridaje,
+      }));
+      setScanImages([]);
+    } catch (err) {
+      setScanError("Error: " + (err?.message || String(err)));
+    }
+    setScanning(false);
+  };
+
+  // ── Sugerencias ──
+  const buscarSugerencias = async () => {
+    if (!sugerContext.trim()) return;
+    if (!apiKey) { alert("Falta API key. Andá a Configuración."); return; }
+    if (db.wines.length === 0) { alert("Agregá vinos primero."); return; }
+    setSugerLoading(true); setSugerResult(null);
+    try {
+      // Dedupe por nombre+bodega+añada con conteo
+      const dedupe = new Map();
+      db.wines.forEach(w => {
+        const k = `${w.nombre}|||${w.bodega}|||${w.anada}`;
+        if (!dedupe.has(k)) dedupe.set(k, { ...w, _count: 0 });
+        dedupe.get(k)._count += 1;
+      });
+      const uniques = Array.from(dedupe.values());
+      const wineList = uniques.map((w,i) =>
+        `${i+1}. ${w.nombre} | ${w.bodega} | ${w.tipo} | ${w.cepa||"—"} | ${w.pais||"—"}${w.provincia?`/${w.provincia}`:""} | añada ${w.anada||"s/d"} | ${w._count} botella${w._count>1?"s":""}${w.maridaje?` | maridaje: ${w.maridaje}`:""}`
+      ).join("\n");
+      const prompt = `Sos sommelier ayudándome a elegir un vino de mi cava.\n\nMI INVENTARIO (${uniques.length} etiquetas únicas, ${db.wines.length} botellas):\n${wineList}\n\nOCASIÓN / COMIDA: ${sugerContext}\n\nDevolvé EXCLUSIVAMENTE un JSON válido sin texto fuera, sin bloque de código markdown:\n{"ocasion":"resumen breve","sugerencias":[{"numero":1,"nombre":"<copiar exacto del inventario>","bodega":"<copiar exacto>","tipo":"<copiar>","razon":"1-2 oraciones de por qué este vino para esta ocasión"}],"nota":"opcional, si querés agregar un consejo"}\n\nElegí entre 4 y 8 opciones variadas y relevantes. No te limites a lo más caro o lo mejor; mostrá variedad para que pueda decidir. IMPORTANTE: copiá nombre y bodega EXACTAMENTE como aparecen en el inventario para poder linkearlos.`;
+      const text = await callClaude({
+        apiKey,
+        maxTokens: 2000,
+        messages: [{ role:"user", content: prompt }]
+      });
+      const cleaned = text.replace(/```json|```/g,"").trim();
+      const m = cleaned.match(/\{[\s\S]*\}/);
+      if (!m) throw new Error("Respuesta sin JSON: " + cleaned.slice(0,200));
+      setSugerResult(JSON.parse(m[0]));
+    } catch (err) {
+      alert("No pude obtener sugerencias: " + (err?.message || err));
+    }
+    setSugerLoading(false);
+  };
+
+  // ── Bootstrap inicial: bajar todo desde el Gist (cuando arrancás en un dispositivo nuevo) ──
+  const [bootBusy, setBootBusy] = useState(false);
+  const [bootError, setBootError] = useState("");
+  const [bootTokenDraft, setBootTokenDraft] = useState("");
+  const [bootIdDraft, setBootIdDraft] = useState("");
+  const conectarYBajar = async () => {
+    const t = bootTokenDraft.trim();
+    const id = bootIdDraft.trim();
+    if (!t || !id) { setBootError("Completá token y Gist ID."); return; }
+    setBootError(""); setBootBusy(true);
+    try {
+      const r = await fetch(`https://api.github.com/gists/${id}`, {
+        headers: { "Authorization": `Bearer ${t}`, "Accept": "application/vnd.github+json" }
+      });
+      if (!r.ok) {
+        const tx = await r.text();
+        throw new Error(`HTTP ${r.status}: ${tx.slice(0,180)}`);
+      }
+      const data = await r.json();
+      const file = data.files && data.files["cava.json"];
+      if (!file) throw new Error("El Gist no tiene un archivo cava.json.");
+      let content = file.content;
+      if (file.truncated && file.raw_url) {
+        const r2 = await fetch(file.raw_url, { headers: { "Authorization": `Bearer ${t}` }});
+        content = await r2.text();
+      }
+      const parsed = JSON.parse(content);
+      if (!parsed.wines || !Array.isArray(parsed.wines)) throw new Error("JSON inválido (falta wines[]).");
+      if (!parsed.consumos) parsed.consumos = [];
+      // Persistir credenciales y datos. Auto-sync queda activo (es el default).
+      localStorage.setItem(GIST_TOKEN_KEY, t);
+      localStorage.setItem(GIST_ID_KEY, id);
+      setGistToken(t); setGistId(id);
+      lastHashRef.current = hashDb(parsed);
+      lastUpdatedAtRef.current = data.updated_at;
+      initialPullDoneRef.current = true; // ya bajamos, habilitar push automático
+      skipNextPushRef.current = true;     // el persist no debe rebotar como push
+      await persist(parsed);
+      stampSync();
+      setBootTokenDraft(""); setBootIdDraft("");
+    } catch (e) {
+      setBootError(e.message || String(e));
+    }
+    setBootBusy(false);
+  };
+
+  // ── Import / Export ──
+  const exportJSON = () => {
+    const blob = new Blob([JSON.stringify(db, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `cava-anita-jano-${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  const importJSON = (file) => {
+    const r = new FileReader();
+    r.onload = () => {
+      try {
+        const parsed = JSON.parse(r.result);
+        if (!parsed.wines || !Array.isArray(parsed.wines)) throw new Error("formato inválido");
+        askConfirm(`¿Reemplazar el inventario actual con ${parsed.wines.length} vinos del archivo?`, async () => {
+          await persist(parsed);
+          setImportMsg(`✓ Importados ${parsed.wines.length} vinos`);
+          setTimeout(()=>setImportMsg(""), 4000);
+        });
+      } catch (e) { setImportMsg("✗ Error: " + e.message); setTimeout(()=>setImportMsg(""), 4000); }
+    };
+    r.readAsText(file);
+  };
+  const importCSV = (file) => {
+    const r = new FileReader();
+    r.onload = () => {
+      try {
+        const rows = parseCSV(r.result);
+        if (!rows.length) throw new Error("CSV vacío o sin filas");
+        const newWines = rows.map(row => ({
+          id: genId(),
+          nombre: row.nombre || row.etiqueta || row.name || "",
+          bodega: row.bodega || row.winery || "",
+          anada: row.anada || row["año"] || row.year || row.vintage || "",
+          tipo: row.tipo || row.type || "Tinto",
+          cepa: row.cepa || row.varietal || row.grape || "",
+          pais: row.pais || row.country || "Argentina",
+          provincia: row.provincia || row.region || "",
+          precio: row.precio || row.price || "",
+          puntuacion: row.puntuacion || row.score || row.rating || "",
+          maridaje: row.maridaje || row.pairing || "",
+          notas: row.notas || row.notes || "",
+          alcohol: row.alcohol || "",
+          tempServicio: row.tempservicio || row.temperatura || "",
+          guarda: row.guarda || row.aging || "",
+          ojo: row.ojo || "", nariz: row.nariz || "", boca: row.boca || "", final: row.final || "",
+          foto: "",
+          cava: "grande", row: "", col: "", zona: "adelante",
+          fechaIngreso: new Date().toISOString()
+        })).filter(w => w.nombre);
+        if (!newWines.length) throw new Error("ninguna fila tiene 'nombre'");
+        askConfirm(`¿Sumar ${newWines.length} vinos al inventario?`, async () => {
+          await persist({ ...db, wines: [...db.wines, ...newWines] });
+          setImportMsg(`✓ Importados ${newWines.length} vinos (sin posición — asignalos desde el mapa)`);
+          setTimeout(()=>setImportMsg(""), 6000);
+        });
+      } catch (e) { setImportMsg("✗ Error: " + e.message); setTimeout(()=>setImportMsg(""), 4000); }
+    };
+    r.readAsText(file);
+  };
+
+  // ─── Stats memo ───
+  const stats = useMemo(() => {
+    if (!db) return null;
+    const byType = {}; const byCountry = {}; const byBodega = {}; const byAnada = {};
+    let totalValor = 0;
+    db.wines.forEach(w => {
+      byType[w.tipo] = (byType[w.tipo]||0) + 1;
+      if (w.pais) byCountry[w.pais] = (byCountry[w.pais]||0) + 1;
+      if (w.bodega) byBodega[w.bodega] = (byBodega[w.bodega]||0) + 1;
+      if (w.anada) byAnada[w.anada] = (byAnada[w.anada]||0) + 1;
+      totalValor += parsePrecio(w.precio);
+    });
+    const sortObj = o => Object.entries(o).sort((a,b)=>b[1]-a[1]);
+    return {
+      byType: sortObj(byType),
+      byCountry: sortObj(byCountry),
+      byBodega: sortObj(byBodega).slice(0,10),
+      byAnada: Object.entries(byAnada).sort((a,b)=>a[0].localeCompare(b[0])),
+      totalValor
+    };
+  }, [db]);
+
+  if (!db) return (
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",color:"#aaa",fontFamily:"system-ui"}}>Cargando…</div>
+  );
+
+  // ── Pantalla de bootstrap: dispositivo nuevo, cava vacía y sin credenciales/Gist ID ──
+  // Una vez que haya algún vino o ya estén configurados token+id, no se muestra más.
+  const necesitaBootstrap = db.wines.length === 0 && db.consumos.length === 0 && (!gistToken || !gistId);
+  if (necesitaBootstrap) {
+    return (
+      <div style={{minHeight:"100vh",background:"#FFFFFF",display:"flex",alignItems:"center",justifyContent:"center",padding:"24px 16px",fontFamily:"'Inter',system-ui,sans-serif"}}>
+        <div style={{maxWidth:480,width:"100%"}}>
+          <div style={{textAlign:"center",marginBottom:28}}>
+            <div className="vj-serif" style={{fontSize:34,letterSpacing:"-0.01em",color:"#1A1A1A",lineHeight:1.05,marginBottom:6}}>CAVA Anita y Jano</div>
+            <div style={{fontSize:13,color:"#888",letterSpacing:"0.04em",textTransform:"uppercase"}}>Conectar este dispositivo</div>
+          </div>
+          <div style={{background:"#fff",border:"1px solid #E5E5E5",borderRadius:12,padding:"22px 22px"}}>
+            <div style={{fontSize:13,color:"#4A4A4A",lineHeight:1.6,marginBottom:18}}>
+              Tu cava se sincroniza con un <strong style={{color:"#1A1A1A"}}>Gist privado</strong> de GitHub. Pegá el mismo token y el Gist ID en cada dispositivo y vas a tener siempre la misma colección.
+            </div>
+            <div style={{fontSize:12,color:"#666",marginBottom:6,fontWeight:500}}>1. Personal access token (classic, scope <code style={{background:"#F7F7F7",padding:"1px 5px",borderRadius:3,fontSize:11}}>gist</code>)</div>
+            <input type="password" autoComplete="off" value={bootTokenDraft} onChange={e=>setBootTokenDraft(e.target.value)} placeholder="ghp_..." style={{width:"100%",padding:"10px 12px",border:"1px solid #E5E5E5",borderRadius:7,fontSize:13,outline:"none",fontFamily:"monospace",marginBottom:14}}/>
+            <div style={{fontSize:12,color:"#666",marginBottom:6,fontWeight:500}}>2. Gist ID</div>
+            <input type="text" autoComplete="off" value={bootIdDraft} onChange={e=>setBootIdDraft(e.target.value)} placeholder="abcdef0123456789..." style={{width:"100%",padding:"10px 12px",border:"1px solid #E5E5E5",borderRadius:7,fontSize:13,outline:"none",fontFamily:"monospace",marginBottom:18}}/>
+            <button onClick={conectarYBajar} disabled={bootBusy || !bootTokenDraft.trim() || !bootIdDraft.trim()} style={{width:"100%",padding:"12px 16px",background:(bootBusy||!bootTokenDraft.trim()||!bootIdDraft.trim())?"#ccc":"#1A1A1A",color:"#fff",border:"none",borderRadius:8,fontSize:14,fontWeight:500,cursor:(bootBusy||!bootTokenDraft.trim()||!bootIdDraft.trim())?"not-allowed":"pointer"}}>
+              {bootBusy ? "Bajando del Gist…" : "Conectar y bajar mi cava"}
+            </button>
+            {bootError && (
+              <div style={{marginTop:14,padding:"10px 12px",background:"#fff7ed",border:"1px solid #fed7aa",borderRadius:7,fontSize:12,color:"#9a3412",lineHeight:1.5}}>
+                ✕ {bootError}
+              </div>
+            )}
+            <div style={{fontSize:11,color:"#bbb",marginTop:18,lineHeight:1.6}}>
+              <strong style={{color:"#888"}}>¿De dónde sale el token?</strong> github.com → Settings → Developer settings → Personal access tokens → <em>Tokens (classic)</em> → Generate. Marcá solo <code style={{background:"#F7F7F7",padding:"1px 4px",borderRadius:3,fontSize:10}}>gist</code>.<br/>
+              <strong style={{color:"#888"}}>¿El Gist ID?</strong> Lo ves en la URL: <code style={{background:"#F7F7F7",padding:"1px 4px",borderRadius:3,fontSize:10}}>gist.github.com/&lt;user&gt;/&lt;ID&gt;</code>.
+            </div>
+          </div>
+          <div style={{textAlign:"center",marginTop:18,fontSize:11,color:"#bbb"}}>
+            Esta pantalla aparece solo en dispositivos nuevos. Una vez que bajes la cava, el auto-sync mantiene todo al día sin que toques nada.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const conf = CAVAS.find(c => c.id === "grande");
+  const getWineAt = (cava, row, col, zona) => db.wines.find(w => w.cava===cava && w.row===row && w.col===col && w.zona===zona) || null;
+  const totalPos = conf.rows * (conf.colsFront + conf.colsBack);
+  const ocupacion = db.wines.filter(w => w.row !== "" && w.col !== "").length;
+  const paises = [...new Set(db.wines.map(w => w.pais).filter(Boolean))];
+  const porTipo = TIPOS.reduce((a,t) => { const n = db.wines.filter(w=>w.tipo===t).length; if(n>0) a.push({t,n}); return a; }, []);
+
+  let wines = db.wines.filter(w => {
+    const q = search.toLowerCase();
+    const mQ = !q || [w.nombre,w.bodega,w.cepa,w.pais,w.maridaje,w.notas].some(v=>(v||"").toLowerCase().includes(q));
+    return mQ
+      && (!filterTipo||w.tipo===filterTipo)
+      && (!filterPais||w.pais===filterPais)
+      && (!filterAnada||String(w.anada)===String(filterAnada))
+      && (!filterCepa||w.cepa===filterCepa);
+  });
+
+  const openDetail = (w) => { setSelectedWine(w); setModal({mode:"detail"}); };
+  const openFormNew = (pos={}) => { setForm(emptyForm(pos.cava||"grande", pos.row ?? "", pos.col ?? "", pos.zona||"adelante")); setFormErr(""); setModal({mode:"form",editId:null}); };
+  // Mover una botella a una celda específica del mapa.
+  // Si la celda destino ya está ocupada, no se hace nada (UI muestra rojo durante el drag).
+  const moveWineToCell = (wineId, cava, row, col, zona) => {
+    if (!wineId || !db) return;
+    const w = db.wines.find(x => x.id === wineId);
+    if (!w) return;
+    const occupied = db.wines.find(x => x.id !== wineId && x.cava === cava && x.row === row && x.col === col && x.zona === zona);
+    if (occupied) {
+      setDropMsg(`✕ Esa posición ya está ocupada por "${occupied.nombre || "otra botella"}".`);
+      setTimeout(()=>setDropMsg(""), 4000);
+      return;
+    }
+    persist({
+      ...db,
+      wines: db.wines.map(x => x.id === wineId ? { ...x, cava, row, col, zona } : x)
+    });
+    const posTxt = `Estante ${row+1} · ${zona==="atrás"?"Atrás":"Adelante"} · pos ${col+1}`;
+    setDropMsg(`✓ "${w.nombre || "Vino"}" movido a ${posTxt}.`);
+    setTimeout(()=>setDropMsg(""), 4000);
+  };
+  // Elegir qué botella del grupo arrastrar: prioriza una sin ubicación
+  const pickDragBottle = (group) => {
+    if (!group?.bottles?.length) return null;
+    const sinUb = group.bottles.find(b => b.cava !== "caja" && (b.row === "" || b.row === null || b.row === undefined));
+    return sinUb || group.bottles[0];
+  };
+  const openFormEdit = (w) => { setForm({...emptyForm(), ...w}); setFormErr(""); setModal({mode:"form",editId:w.id}); };
+  const closeModal = () => { setModal(null); setScanImages([]); setScanError(""); };
+
+  const saveWine = async () => {
+    if (!form.nombre.trim() || !form.bodega.trim()) { setFormErr("Nombre y Bodega son obligatorios."); return; }
+    let row = form.row, col = form.col;
+    const hasRow = form.row !== "" && form.row !== null && form.row !== undefined;
+    const hasCol = form.col !== "" && form.col !== null && form.col !== undefined;
+    if (hasRow && hasCol) {
+      row = parseInt(form.row); col = parseInt(form.col);
+      const maxCol = form.zona==="adelante" ? conf.colsFront : conf.colsBack;
+      if (isNaN(row)||row<0||row>=conf.rows) { setFormErr("Fila inválida."); return; }
+      if (isNaN(col)||col<0||col>=maxCol) { setFormErr(`Columna inválida (máx ${maxCol}).`); return; }
+      const conflict = db.wines.find(w => w.cava===form.cava&&w.row===row&&w.col===col&&w.zona===form.zona&&w.id!==modal.editId);
+      if (conflict) { setFormErr(`Posición ocupada por: ${conflict.nombre}`); return; }
+    } else { row = ""; col = ""; }
+    const entry = {...form, row, col, id:modal.editId||genId(), fechaIngreso:modal.editId?form.fechaIngreso:new Date().toISOString()};
+    await persist({...db, wines: modal.editId ? db.wines.map(w=>w.id===modal.editId?entry:w) : [...db.wines,entry]});
+    closeModal();
+  };
+
+  const deleteWine = (id) => askConfirm("¿Eliminar este vino de la cava?", async () => {
+    await persist({...db, wines: db.wines.filter(w=>w.id!==id)}); closeModal();
+  });
+
+  // ── Consumir: abre form para anotar fecha + notas, después confirma ──
+  const registrarConsumo = (wine) => {
+    setSelectedWine(wine);
+    setConsumoForm({
+      fecha: new Date().toISOString().slice(0,10),
+      ocasion: "",
+      notaConsumo: "",
+      puntuacionFinal: ""
+    });
+    setModal({mode:"consumo"});
+  };
+  const confirmarConsumo = async () => {
+    const w = selectedWine;
+    if (!w) return;
+    const fechaISO = consumoForm.fecha
+      ? new Date(consumoForm.fecha + "T12:00:00").toISOString()
+      : new Date().toISOString();
+    const consumo = {
+      ...w,
+      id: genId(),
+      wineId: w.id,
+      fecha: fechaISO,
+      ocasion: consumoForm.ocasion.trim(),
+      notaConsumo: consumoForm.notaConsumo.trim(),
+      puntuacionFinal: consumoForm.puntuacionFinal.trim()
+    };
+    await persist({
+      wines: db.wines.filter(x=>x.id!==w.id),
+      consumos: [consumo, ...db.consumos]
+    });
+    closeModal();
+  };
+  // ── Volver al inventario desde historial ──
+  const restaurarVino = (consumo) => askConfirm(
+    `¿Volver "${consumo.nombre}" al inventario? Se borra del historial.`,
+    async () => {
+      const { fecha, wineId, ocasion, notaConsumo, puntuacionFinal, ...wineFields } = consumo;
+      const restored = { ...wineFields, id: genId() };
+      await persist({
+        wines: [...db.wines, restored],
+        consumos: db.consumos.filter(c=>c.id!==consumo.id)
+      });
+    }
+  );
+  // ── Eliminar un consumo del historial ──
+  const eliminarConsumo = (consumo) => askConfirm(
+    `¿Eliminar definitivamente "${consumo.nombre}" del historial? Esta acción no se puede deshacer.`,
+    async () => {
+      await persist({
+        ...db,
+        consumos: db.consumos.filter(c => c.id !== consumo.id)
+      });
+    }
+  );
+  // ── Editar nota de un consumo en historial ──
+  const editarNotaConsumo = (consumo) => {
+    setSelectedWine(consumo);
+    setConsumoForm({
+      fecha: (consumo.fecha||"").slice(0,10),
+      ocasion: consumo.ocasion || "",
+      notaConsumo: consumo.notaConsumo || "",
+      puntuacionFinal: consumo.puntuacionFinal || ""
+    });
+    setModal({mode:"editConsumo", consumoId: consumo.id});
+  };
+  const guardarNotaConsumo = async () => {
+    if (!modal?.consumoId) return;
+    const fechaISO = consumoForm.fecha
+      ? new Date(consumoForm.fecha + "T12:00:00").toISOString()
+      : new Date().toISOString();
+    await persist({
+      ...db,
+      consumos: db.consumos.map(c => c.id===modal.consumoId
+        ? { ...c, fecha: fechaISO, ocasion: consumoForm.ocasion.trim(),
+            notaConsumo: consumoForm.notaConsumo.trim(),
+            puntuacionFinal: consumoForm.puntuacionFinal.trim() }
+        : c)
+    });
+    closeModal();
+  };
+
+  const ss = {width:"100%",padding:"6px 8px",border:"1px solid #E5E5E5",borderRadius:5,fontSize:12,outline:"none",background:"#fff",cursor:"pointer",fontFamily:"inherit"};
+
+  return (
+    <div style={{minHeight:"100vh",background:"#FFFFFF",fontSize:14,color:"#1A1A1A"}}>
+
+      {/* HEADER */}
+      <div style={{background:"#fff",borderBottom:"1px solid #E5E5E5",padding:"14px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          <div style={{width:32,height:32,borderRadius:7,background:"#1A1A1A",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>🍷</div>
+          <div>
+            <div style={{fontWeight:600,fontSize:15,lineHeight:1,color:"#1A1A1A",letterSpacing:"-0.005em"}}>CAVA Anita y Jano</div>
+            <div style={{fontSize:11,color:"#9A9A9A",marginTop:3}}>{db.wines.length} botellas · {db.consumos.length} consumidas{apiKey?" · IA activa":""}</div>
+          </div>
+        </div>
+        <span style={{fontSize:11,color:saving?"#9A9A9A":"#1A1A1A"}}>{saving?"Guardando…":"● Guardado"}</span>
+      </div>
+
+      {/* STATS */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,padding:"14px 24px 0"}}>
+        {[
+          {l:"EN CAVA",v:db.wines.length,sub:"Ocupación",pct:Math.round(ocupacion/totalPos*100)+"%"},
+          {l:"ETIQUETAS",v:new Set(db.wines.map(w=>w.nombre+w.bodega)).size,sub:`${paises.length} países`},
+          {l:"CONSUMIDAS",v:db.consumos.length,sub:"historial completo"},
+          {l:"VALOR ESTIM.",v:stats.totalValor>0?`$${Math.round(stats.totalValor).toLocaleString("es-AR")}`:"—",sub:"suma de precios",txt:true},
+        ].map((s,i)=>(
+          <div key={i} style={{background:"#fff",border:"1px solid #E5E5E5",borderRadius:8,padding:"14px 16px"}}>
+            <div style={{fontSize:10,fontWeight:600,letterSpacing:"0.08em",color:"#9A9A9A",marginBottom:8,textTransform:"uppercase"}}>{s.l}</div>
+            <div style={{fontSize:s.txt?18:24,fontWeight:300,lineHeight:1,marginBottom:8,color:"#1A1A1A"}}>{s.v}</div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:11,color:"#9A9A9A"}}>{s.sub}</span>
+              {s.pct&&<span style={{fontSize:11,color:"#6B6B6B"}}>{s.pct}</span>}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* TABS */}
+      <div style={{padding:"14px 24px 0",display:"flex",gap:4,flexWrap:"wrap"}}>
+        {[["inventario","≡ Inventario"],["sugerencias","✦ Sugerencias"],["historial","↺ Historial"],["config","⚙ Configuración"]].map(([id,lbl])=>(
+          <button key={id} onClick={()=>setTab(id)} style={{padding:"6px 14px",border:"1px solid",borderColor:tab===id?"#1A1A1A":"#E5E5E5",borderRadius:6,background:tab===id?"#1A1A1A":"#fff",color:tab===id?"#fff":"#6B6B6B",fontSize:12,fontWeight:tab===id?500:400,cursor:"pointer"}}>
+            {lbl}
+          </button>
+        ))}
+      </div>
+
+      <div style={{padding:"22px 28px 40px"}}>
+        {(dropMsg || dragWineId) && (
+          <div style={{position:"fixed",top:18,left:"50%",transform:"translateX(-50%)",zIndex:9000,padding:"10px 22px",borderRadius:999,fontSize:12.5,fontWeight:500,letterSpacing:"0.02em",boxShadow:"0 6px 20px rgba(0,0,0,0.12)",background:dragWineId?"#1A1A1A":(dropMsg.startsWith("✓")?"#1A1A1A":"#FFFFFF"),color:dragWineId?"#FFFFFF":(dropMsg.startsWith("✓")?"#FFFFFF":"#1A1A1A"),border:"1px solid #1A1A1A"}}>
+            {dragWineId ? "Arrastrá la botella sobre una celda vacía del mapa para asignar posición · Soltá fuera para cancelar" : dropMsg}
+          </div>
+        )}
+
+        {/* ══ INVENTARIO ══ */}
+        {tab==="inventario"&&(
+          <div style={{display:"grid",gridTemplateColumns:"290px 1fr",gap:12}}>
+            {/* MAPA */}
+            <div style={{background:"#fff",border:"1px solid #E5E5E5",borderRadius:10,padding:"14px 12px",alignSelf:"start"}}>
+              <div style={{fontWeight:600,fontSize:13,marginBottom:1}}>Mapa de Cava</div>
+              <div style={{fontSize:11,color:"#aaa",marginBottom:12}}>{ocupacion} / {totalPos} posiciones</div>
+              <div style={{display:"flex",marginBottom:3,marginLeft:20}}>
+                <div style={{width:conf.colsFront*22,textAlign:"center",fontSize:8.5,color:"#ccc",letterSpacing:"0.06em"}}>ADELANTE ({conf.colsFront})</div>
+                <div style={{width:12}}/>
+                <div style={{width:conf.colsBack*22,textAlign:"center",fontSize:8.5,color:"#ccc",letterSpacing:"0.06em"}}>ATRÁS ({conf.colsBack})</div>
+              </div>
+              <div style={{display:"flex",marginBottom:2,marginLeft:20}}>
+                {[...Array(conf.colsFront)].map((_,i)=><div key={i} style={{width:22,fontSize:8,color:"#ddd",textAlign:"center"}}>{i+1}</div>)}
+                <div style={{width:12}}/>
+                {[...Array(conf.colsBack)].map((_,i)=><div key={i} style={{width:22,fontSize:8,color:"#ddd",textAlign:"center"}}>{i+1}</div>)}
+              </div>
+              {Array.from({length:conf.rows},(_,r)=>(
+                <div key={r} style={{display:"flex",alignItems:"center",marginBottom:2}}>
+                  <div style={{width:18,fontSize:9,color:"#ccc",textAlign:"right",paddingRight:3,flexShrink:0}}>{r+1}</div>
+                  {[...Array(conf.colsFront)].map((_,c)=>{
+                    const w=getWineAt("grande",r,c,"adelante");
+                    return <MapCell key={"f"+c} wine={w}
+                      onClick={()=>w?openDetail(w):openFormNew({cava:"grande",row:r,col:c,zona:"adelante"})}
+                      dragActive={dragWineId}
+                      onDrop={()=>{ moveWineToCell(dragWineId,"grande",r,c,"adelante"); setDragWineId(null); }}/>;
+                  })}
+                  <div style={{width:1,alignSelf:"stretch",background:"#D8C9A8",margin:"0 5px",borderRadius:1}}/>
+                  {[...Array(conf.colsBack)].map((_,c)=>{
+                    const w=getWineAt("grande",r,c,"atrás");
+                    return <MapCell key={"b"+c} wine={w}
+                      onClick={()=>w?openDetail(w):openFormNew({cava:"grande",row:r,col:c,zona:"atrás"})}
+                      dragActive={dragWineId}
+                      onDrop={()=>{ moveWineToCell(dragWineId,"grande",r,c,"atrás"); setDragWineId(null); }}/>;
+                  })}
+                </div>
+              ))}
+              <div style={{marginTop:10,paddingTop:8,borderTop:"1px solid #f0f0f0",display:"flex",flexWrap:"wrap",gap:"5px 10px"}}>
+                <div style={{display:"flex",alignItems:"center",gap:3,fontSize:10,color:"#bbb"}}>
+                  <div style={{width:9,height:9,borderRadius:2,border:"1px solid #E5E5E5",background:"#fafafa"}}/> Vacío
+                </div>
+                {TIPOS.slice(0,8).map(t=>(
+                  <div key={t} style={{display:"flex",alignItems:"center",gap:3,fontSize:10,color:"#bbb"}}>
+                    <div style={{width:9,height:9,borderRadius:2,background:TYPE_COLOR[t],opacity:0.75}}/>{t}
+                  </div>
+                ))}
+              </div>
+              {(()=>{
+                const su = db.wines.filter(w => w.cava==="grande" && (w.row===""||w.col===""));
+                if(!su.length) return null;
+                // Agrupar por estante
+                const grupos = {};
+                su.forEach(w => {
+                  const k = (w.row === "" || w.row === null) ? "?" : `Estante ${w.row+1}`;
+                  (grupos[k] = grupos[k] || []).push(w);
+                });
+                const orden = Object.keys(grupos).sort((a,b)=>{
+                  if (a==="?" ) return 1; if (b==="?") return -1;
+                  return parseInt(a.replace(/\D/g,""))-parseInt(b.replace(/\D/g,""));
+                });
+                return (
+                  <div style={{marginTop:12,paddingTop:10,borderTop:"1px solid #f0f0f0"}}>
+                    <div style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#4A4A4A",textTransform:"uppercase",marginBottom:6}}>Sin posición exacta — {su.length}</div>
+                    <div className="scroll" style={{maxHeight:240,overflowY:"auto",display:"flex",flexDirection:"column",gap:6}}>
+                      {orden.map(grupo=>(
+                        <div key={grupo}>
+                          <div style={{fontSize:9,fontWeight:600,color:"#aaa",letterSpacing:"0.05em",marginBottom:2}}>{grupo} · {grupos[grupo].length}</div>
+                          <div style={{display:"flex",flexDirection:"column",gap:2}}>
+                            {grupos[grupo].map(w=>(
+                              <div key={w.id} onClick={()=>openFormEdit(w)}
+                                   style={{display:"flex",alignItems:"center",gap:6,padding:"4px 7px",borderRadius:4,cursor:"pointer",background:"#F7F7F7",border:"1px solid #E5E5E5"}}
+                                   onMouseEnter={e=>e.currentTarget.style.background="#FFF0E0"}
+                                   onMouseLeave={e=>e.currentTarget.style.background="#F7F7F7"}>
+                                <div style={{width:7,height:7,borderRadius:2,background:TYPE_COLOR[w.tipo]||"#ccc",flexShrink:0}}/>
+                                <div style={{fontSize:10.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{w.nombre}</div>
+                                <div style={{fontSize:9,color:"#bbb",flexShrink:0}}>{w.anada||""}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{fontSize:9.5,color:"#bbb",marginTop:4}}>Clic para asignar posición exacta</div>
+                  </div>
+                );
+              })()}
+              {(()=>{
+                const cajaWines = db.wines.filter(w => w.cava==="caja");
+                if(!cajaWines.length) return null;
+                return (
+                  <div style={{marginTop:12,paddingTop:10,borderTop:"1px solid #f0f0f0"}}>
+                    <div style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#1A1A1A",textTransform:"uppercase",marginBottom:6}}>📦 En caja — {cajaWines.length}</div>
+                    <div className="scroll" style={{maxHeight:160,overflowY:"auto",display:"flex",flexDirection:"column",gap:2}}>
+                      {cajaWines.map(w=>(
+                        <div key={w.id} onClick={()=>openDetail(w)}
+                             style={{display:"flex",alignItems:"center",gap:6,padding:"4px 7px",borderRadius:4,cursor:"pointer",background:"#FAF5F4",border:"1px solid #E8D6D2"}}
+                             onMouseEnter={e=>e.currentTarget.style.background="#F2E5E2"}
+                             onMouseLeave={e=>e.currentTarget.style.background="#FAF5F4"}>
+                          <div style={{width:7,height:7,borderRadius:2,background:TYPE_COLOR[w.tipo]||"#ccc",flexShrink:0}}/>
+                          <div style={{fontSize:10.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{w.nombre}</div>
+                          <div style={{fontSize:9,color:"#bbb",flexShrink:0}}>{w.anada||""}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* LISTA */}
+            <div>
+              <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
+                <div style={{position:"relative",flex:1,minWidth:160}}>
+                  <span style={{position:"absolute",left:9,top:"50%",transform:"translateY(-50%)",color:"#ccc",fontSize:13,pointerEvents:"none"}}>⌕</span>
+                  <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar (nombre, bodega, cepa, maridaje, notas)…" style={{width:"100%",padding:"7px 10px 7px 28px",border:"1px solid #E5E5E5",borderRadius:7,fontSize:13,outline:"none",background:"#fff",boxSizing:"border-box"}}/>
+                </div>
+                {(() => {
+                  const anadasInv = [...new Set(db.wines.map(w=>w.anada).filter(v=>v!==""&&v!==null&&v!==undefined))].sort((a,b)=>(b||0)-(a||0)).map(String);
+                  const paisesInv = [...new Set(db.wines.map(w=>w.pais).filter(Boolean))].sort();
+                  const tiposInv  = [...new Set(db.wines.map(w=>w.tipo).filter(Boolean))].sort((a,b)=>TIPOS.indexOf(a)-TIPOS.indexOf(b));
+                  const cepasInv  = [...new Set(db.wines.map(w=>w.cepa).filter(Boolean))].sort();
+                  return (<>
+                    <SelF v={filterAnada} s={setFilterAnada} def="Añada" opts={anadasInv}/>
+                    <SelF v={filterPais}  s={setFilterPais}  def="País"  opts={paisesInv}/>
+                    <SelF v={filterTipo}  s={setFilterTipo}  def="Tipo"  opts={tiposInv}/>
+                    <SelF v={filterCepa}  s={setFilterCepa}  def="Cepa"  opts={cepasInv}/>
+                  </>);
+                })()}
+                <button onClick={resetColWidths} title="Volver a los anchos por defecto"
+                        style={{padding:"7px 12px",background:"#fff",color:"#888",border:"1px solid #E5E5E5",borderRadius:7,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>↔ Reset cols</button>
+                <button onClick={()=>openFormNew()} style={{padding:"7px 16px",background:"#1A1A1A",color:"#fff",border:"none",borderRadius:7,fontSize:12,cursor:"pointer",fontWeight:500,whiteSpace:"nowrap"}}>+ Agregar</button>
+              </div>
+              {wines.length===0?(
+                <div style={{background:"#fff",border:"1px solid #E5E5E5",borderRadius:10,padding:"70px 20px",textAlign:"center"}}>
+                  <div style={{fontSize:28,marginBottom:10,opacity:0.3}}>🍷</div>
+                  <div style={{fontSize:13,color:"#aaa",fontWeight:500,marginBottom:3}}>Tu cava está vacía</div>
+                  <div style={{fontSize:12,color:"#ccc"}}>Tocá + Agregar o cargá tu inventario desde Configuración.</div>
+                </div>
+              ):(()=>{
+                // Agrupar duplicados por nombre+bodega+añada+cepa
+                const gKey = (w)=>`${w.nombre}|||${w.bodega}|||${w.anada}|||${w.cepa}|||${w.tipo}|||${w.pais}|||${w.provincia}`;
+                const map = new Map();
+                wines.forEach(w => {
+                  const k = gKey(w);
+                  if (!map.has(k)) map.set(k, { key:k, sample:w, bottles:[] });
+                  map.get(k).bottles.push(w);
+                });
+                let groups = Array.from(map.values());
+                // Por defecto: el último vino agregado aparece primero
+                if (!sortCol) {
+                  const newest = (g) => Math.max(...g.bottles.map(b => {
+                    const t = b.fechaIngreso ? new Date(b.fechaIngreso).getTime() : 0;
+                    return isNaN(t) ? 0 : t;
+                  }));
+                  groups = [...groups].sort((a,b) => newest(b) - newest(a));
+                }
+                // Ordenamiento por columna
+                if (sortCol) {
+                  const cmp = (a,b) => {
+                    let av, bv;
+                    if (sortCol === "unidades") { av = a.bottles.length; bv = b.bottles.length; }
+                    else if (sortCol === "anada") { av = parseInt(a.sample.anada)||0; bv = parseInt(b.sample.anada)||0; }
+                    else if (sortCol === "ubicacion") {
+                      const locKey = (g) => {
+                        const w = g.sample;
+                        if (w.cava === "caja") return 9999;
+                        if (w.row === "" || w.row === null || w.row === undefined) return 9998;
+                        return (w.row+1) * 100 + ((w.col||0)+1);
+                      };
+                      av = locKey(a); bv = locKey(b);
+                    }
+                    else { av = (a.sample[sortCol]||"").toString().toLowerCase(); bv = (b.sample[sortCol]||"").toString().toLowerCase(); }
+                    if (av < bv) return sortDir === "asc" ? -1 : 1;
+                    if (av > bv) return sortDir === "asc" ? 1 : -1;
+                    return 0;
+                  };
+                  groups = [...groups].sort(cmp);
+                }
+                const summarizeLoc = (bs) => {
+                  const c = {};
+                  bs.forEach(w => {
+                    let l;
+                    if (w.cava==="caja") l="📦";
+                    else if (w.row===""||w.row===null||w.row===undefined) l="?";
+                    else l=`E${w.row+1}`;
+                    c[l] = (c[l]||0)+1;
+                  });
+                  return Object.entries(c).sort((a,b)=>b[1]-a[1]).map(([k,v])=>v>1?`${k}×${v}`:k).join(", ");
+                };
+                const cols = colWidths.map(w => w + "px").join(" ");
+                const tableMinWidth = colWidths.reduce((a,b)=>a+b, 0) + 28; // suma + padding lateral
+                const headers = [
+                  ["Etiqueta","nombre"],["Bodega","bodega"],["Añada","anada"],["País","pais"],
+                  ["Provincia","provincia"],["Cepa","cepa"],["Tipo","tipo"],["Ubicación","ubicacion"],
+                  ["Unid.","unidades"]
+                ];
+                return (
+                  <div style={{background:"#fff",border:"1px solid #E5E5E5",borderRadius:10,overflow:"auto"}}>
+                    <div style={{minWidth: tableMinWidth}}>
+                    <div style={{display:"grid",gridTemplateColumns:cols,padding:"7px 14px",background:"#FAFAFA",borderBottom:"1px solid #F0F0F0",gap:6,position:"relative"}}>
+                      {headers.map(([h,key],i)=>{
+                        const active = key && sortCol === key;
+                        const arrow = active ? (sortDir === "asc" ? " ▲" : " ▼") : "";
+                        const isLast = i === headers.length - 1;
+                        return (
+                          <div key={i} style={{position:"relative",overflow:"hidden"}}>
+                            <div onClick={key ? ()=>handleSortClick(key) : undefined}
+                                 style={{fontSize:10,fontWeight:600,letterSpacing:"0.06em",color:active?"#1a1a1a":"#bbb",textTransform:"uppercase",cursor:key?"pointer":"default",userSelect:"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",paddingRight:isLast?0:6}}
+                                 onMouseEnter={e=>{if(key)e.currentTarget.style.color="#666";}}
+                                 onMouseLeave={e=>{if(key)e.currentTarget.style.color=active?"#1a1a1a":"#bbb";}}>
+                              {h}{arrow}
+                            </div>
+                            {!isLast && (
+                              <div onMouseDown={(e)=>startColResize(i, e)}
+                                   onClick={e=>e.stopPropagation()}
+                                   title="Arrastrá para ajustar ancho"
+                                   style={{position:"absolute",top:-7,right:-9,bottom:-7,width:14,cursor:"col-resize",zIndex:5,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                                <div style={{width:1,height:"100%",background:"#E5E5E5"}}/>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {groups.map((g,i)=>{
+                      const w = g.sample;
+                      const isExp = expanded.has(g.key);
+                      const isLast = i===groups.length-1;
+                      return (
+                        <div key={g.key} style={{borderBottom:isLast&&!isExp?"none":"1px solid #F0F0F0"}}>
+                          <div onClick={()=>g.bottles.length>1?toggleExpanded(g.key):openDetail(w)}
+                               draggable={true}
+                               onDragStart={e=>{
+                                 const b = pickDragBottle(g);
+                                 if (!b) return;
+                                 e.dataTransfer.effectAllowed = "move";
+                                 e.dataTransfer.setData("text/plain", b.id);
+                                 setDragWineId(b.id);
+                               }}
+                               onDragEnd={()=>setDragWineId(null)}
+                               className="vj-dragrow"
+                               title="Arrastrá esta etiqueta sobre el mapa para asignarle posición"
+                               style={{display:"grid",gridTemplateColumns:cols,padding:"9px 14px",alignItems:"center",gap:6,background:isExp?"#F7F7F7":"transparent"}}
+                               onMouseEnter={e=>e.currentTarget.style.background="#F7F7F7"}
+                               onMouseLeave={e=>e.currentTarget.style.background=isExp?"#F7F7F7":"transparent"}>
+                            <div style={{fontWeight:500,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6}} title={w.nombre}>
+                              <span style={{fontSize:11,color:"#bbb",width:10,flexShrink:0,textAlign:"center"}}>{g.bottles.length>1?(isExp?"▼":"▶"):""}</span>
+                              <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{w.nombre}</span>
+                            </div>
+                            <div style={{fontSize:12,color:"#666",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={w.bodega}>{w.bodega}</div>
+                            <div style={{fontSize:12,color:"#999"}}>{w.anada||"—"}</div>
+                            <div style={{fontSize:12,color:"#666",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={w.pais}>{w.pais||"—"}</div>
+                            <div style={{fontSize:12,color:"#666",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={w.provincia}>{w.provincia||"—"}</div>
+                            <div style={{fontSize:12,color:"#666",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={w.cepa}>{w.cepa||"—"}</div>
+                            <div><span style={{padding:"2px 7px",borderRadius:4,fontSize:10,background:TYPE_BG[w.tipo]||"#f5f5f5",color:TYPE_COLOR[w.tipo]||"#888",fontWeight:500,whiteSpace:"nowrap"}}>{w.tipo}</span></div>
+                            <div style={{fontSize:11,color:"#888",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={summarizeLoc(g.bottles)}>{summarizeLoc(g.bottles)}</div>
+                            <div style={{fontSize:12,fontWeight:600,color:g.bottles.length>1?"#1A1A1A":"#aaa",textAlign:"center"}}>{g.bottles.length}</div>
+                          </div>
+                          {isExp && g.bottles.length>1 && (
+                            <div style={{background:"#F7F7F7",borderTop:"1px solid #F0F0F0"}}>
+                              {g.bottles.map((b,bi)=>{
+                                let posTxt;
+                                if (b.cava==="caja") posTxt = "📦 En caja";
+                                else if (b.row===""||b.row===null||b.row===undefined) posTxt = "Sin estante";
+                                else if (b.col===""||b.col===null||b.col===undefined) posTxt = `Estante ${b.row+1} · sin posición exacta`;
+                                else posTxt = `Estante ${b.row+1} · ${b.zona==="atrás"?"Atrás":"Adelante"} · posición ${b.col+1}`;
+                                return (
+                                  <div key={b.id} onClick={()=>openDetail(b)}
+                                       draggable={true}
+                                       onDragStart={e=>{
+                                         e.stopPropagation();
+                                         e.dataTransfer.effectAllowed = "move";
+                                         e.dataTransfer.setData("text/plain", b.id);
+                                         setDragWineId(b.id);
+                                       }}
+                                       onDragEnd={()=>setDragWineId(null)}
+                                       className="vj-dragrow"
+                                       title="Arrastrá esta botella al mapa"
+                                       style={{display:"flex",gap:10,padding:"8px 14px 8px 32px",borderBottom:bi<g.bottles.length-1?"1px solid #F0F0F0":"none",alignItems:"center"}}
+                                       onMouseEnter={e=>e.currentTarget.style.background="#F0F0F0"}
+                                       onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                                    <div style={{fontSize:10,color:"#6B6B6B",fontWeight:700,minWidth:24}}>#{bi+1}</div>
+                                    <div style={{flex:1,fontSize:12,color:"#4A3A2D"}}>{posTxt}</div>
+                                    <div style={{fontSize:11,color:"#9A8B7A"}}>Ver / Editar →</div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        )}
+
+        {/* ══ HISTORIAL ══ */}
+        {tab==="historial"&&(
+          <div style={{maxWidth:680}}>
+            {db.consumos.length===0?(
+              <div style={{background:"#fff",border:"1px solid #E5E5E5",borderRadius:10,padding:"70px 20px",textAlign:"center"}}>
+                <div style={{fontSize:28,marginBottom:10,opacity:0.3}}>🥂</div>
+                <div style={{fontSize:13,color:"#aaa"}}>Todavía no hay consumos registrados.</div>
+              </div>
+            ):(
+              <div style={{background:"#fff",border:"1px solid #E5E5E5",borderRadius:10,overflow:"hidden"}}>
+                {db.consumos.map((c,i)=>{
+                  const hasNotes = c.ocasion||c.notaConsumo||c.puntuacionFinal;
+                  const fechaTxt = c.fecha?new Date(c.fecha).toLocaleDateString("es-AR",{day:"2-digit",month:"short",year:"numeric"}):"sin fecha";
+                  return (
+                    <div key={c.id} style={{padding:"12px 16px",borderBottom:i<db.consumos.length-1?"1px solid #F5F5F5":"none"}}>
+                      <div style={{display:"flex",alignItems:"flex-start",gap:12}}>
+                        <div style={{width:8,height:8,borderRadius:2,background:TYPE_COLOR[c.tipo]||"#ccc",flexShrink:0,marginTop:6}}/>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
+                            <div style={{fontWeight:500,fontSize:13}}>{c.nombre}{c.anada&&<span style={{color:"#aaa",fontWeight:400,marginLeft:6}}>{c.anada}</span>}</div>
+                            {c.puntuacionFinal&&<span style={{padding:"1px 7px",borderRadius:4,fontSize:11,background:"#FFF7ED",color:"#B45309",fontWeight:600}}>★ {c.puntuacionFinal}</span>}
+                          </div>
+                          <div style={{fontSize:11,color:"#aaa",marginTop:1}}>{c.bodega}{c.cepa?` · ${c.cepa}`:""} · <span style={{color:"#bbb"}}>{fechaTxt}</span></div>
+                          {c.ocasion&&<div style={{fontSize:12,color:"#666",marginTop:5,fontStyle:"italic"}}>📍 {c.ocasion}</div>}
+                          {c.notaConsumo&&<div style={{fontSize:12,color:"#555",marginTop:4,lineHeight:1.45,whiteSpace:"pre-wrap"}}>{c.notaConsumo}</div>}
+                        </div>
+                        <div style={{display:"flex",flexDirection:"column",gap:5,flexShrink:0}}>
+                          <button onClick={()=>editarNotaConsumo(c)} style={{padding:"4px 10px",background:"#fff",color:"#666",border:"1px solid #E5E5E5",borderRadius:5,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>{hasNotes?"✎ Editar nota":"✎ Agregar nota"}</button>
+                          <button onClick={()=>restaurarVino(c)} style={{padding:"4px 10px",background:"#fff",color:"#1A1A1A",border:"1px solid #F2D5D2",borderRadius:5,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>↩ Volver al inv.</button>
+                          <button onClick={()=>eliminarConsumo(c)} style={{padding:"4px 10px",background:"#fff",color:"#999",border:"1px solid #E5E5E5",borderRadius:5,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>🗑 Eliminar</button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ══ SUGERENCIAS ══ */}
+        {tab==="sugerencias"&&(
+          <div style={{maxWidth:720}}>
+            <div style={{background:"#fff",border:"1px solid #E5E5E5",borderRadius:10,padding:"20px 22px",marginBottom:14}}>
+              <div style={{fontWeight:600,fontSize:14,marginBottom:4}}>¿Para qué ocasión buscás un vino?</div>
+              <div style={{fontSize:12,color:"#aaa",marginBottom:14}}>{apiKey?"Contame sobre la comida, el momento o la reunión. Voy a filtrar tu stock y mostrarte opciones.":"⚠ Configurá la API key primero (tab Configuración)."}</div>
+              <textarea value={sugerContext} onChange={e=>setSugerContext(e.target.value)} placeholder="Ej: Asado de costilla con amigos. O: Cena romántica con mariscos. O: Aperitivo liviano una tarde de verano." rows={3} style={{width:"100%",padding:"10px 12px",border:"1px solid #E5E5E5",borderRadius:7,fontSize:13,outline:"none",resize:"vertical",fontFamily:"inherit",boxSizing:"border-box",marginBottom:12}}/>
+              <button disabled={sugerLoading||!sugerContext.trim()||!apiKey} onClick={buscarSugerencias}
+                style={{padding:"9px 22px",background:(sugerLoading||!sugerContext.trim()||!apiKey)?"#ccc":"#1A1A1A",color:"#fff",border:"none",borderRadius:7,fontSize:13,cursor:(sugerLoading||!sugerContext.trim()||!apiKey)?"not-allowed":"pointer",fontWeight:500}}>
+                {sugerLoading?"⏳ Buscando opciones…":"Buscar opciones en mi cava"}
+              </button>
+            </div>
+            {sugerResult&&(
+              <div>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                  <div>
+                    <div style={{fontWeight:600,fontSize:14}}>Opciones para: <em style={{fontWeight:400}}>{sugerResult.ocasion}</em></div>
+                    {sugerResult.nota&&<div style={{fontSize:12,color:"#aaa",marginTop:2}}>{sugerResult.nota}</div>}
+                  </div>
+                  <div style={{fontSize:11,color:"#bbb"}}>{sugerResult.sugerencias?.length} opciones</div>
+                </div>
+                <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                  {sugerResult.sugerencias?.map((s,i)=>{
+                    const wine = db.wines.find(w=>w.nombre===s.nombre&&w.bodega===s.bodega);
+                    return(
+                      <div key={i} onClick={()=>{if(wine){setSelectedWine(wine);setModal({mode:"detail"});}}}
+                           style={{background:"#fff",border:"1px solid #E5E5E5",borderRadius:10,padding:"14px 18px",cursor:wine?"pointer":"default",display:"flex",gap:14,alignItems:"flex-start"}}
+                           onMouseEnter={e=>{if(wine)e.currentTarget.style.background="#FAFAF8";}}
+                           onMouseLeave={e=>e.currentTarget.style.background="#fff"}>
+                        <div style={{width:28,height:28,borderRadius:7,background:TYPE_COLOR[s.tipo]||"#888",opacity:0.85,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:11,fontWeight:600}}>{i+1}</div>
+                        <div style={{flex:1}}>
+                          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+                            <div style={{fontWeight:600,fontSize:14}}>{s.nombre}</div>
+                            <span style={{padding:"1px 7px",borderRadius:4,fontSize:10,background:TYPE_BG[s.tipo]||"#f5f5f5",color:TYPE_COLOR[s.tipo]||"#888",fontWeight:500}}>{s.tipo}</span>
+                          </div>
+                          <div style={{fontSize:12,color:"#888",marginBottom:6}}>{s.bodega}</div>
+                          <div style={{fontSize:12,color:"#555",lineHeight:1.5}}>{s.razon}</div>
+                        </div>
+                        {wine&&<div style={{fontSize:10,color:"#bbb",flexShrink:0,alignSelf:"center"}}>Ver ficha →</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ══ CONFIGURACIÓN ══ */}
+        {tab==="config"&&(
+          <div style={{maxWidth:720,display:"flex",flexDirection:"column",gap:14}}>
+
+            {/* API KEY */}
+            <div style={{background:"#fff",border:"1px solid #E5E5E5",borderRadius:10,padding:"18px 20px"}}>
+              <div style={{fontWeight:600,fontSize:14,marginBottom:4}}>API key de Claude</div>
+              <div style={{fontSize:12,color:"#aaa",marginBottom:12}}>Necesaria para escanear etiquetas con foto y para sugerencias. Se guarda en localStorage de este navegador.</div>
+              {apiKey ? (
+                <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                  <code style={{background:"#F7F7F7",padding:"6px 10px",borderRadius:6,fontSize:12,color:"#1A1A1A"}}>● Configurada (sk-...{apiKey.slice(-4)})</code>
+                  <button onClick={removeApiKey} style={{padding:"6px 12px",background:"#fff",color:"#1A1A1A",border:"1px solid #E5E5E5",borderRadius:6,fontSize:12,cursor:"pointer"}}>Quitar</button>
+                </div>
+              ) : (
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  <input type="password" value={apiKeyDraft} onChange={e=>setApiKeyDraft(e.target.value)} placeholder="sk-ant-api03-..." style={{flex:1,minWidth:240,padding:"8px 10px",border:"1px solid #E5E5E5",borderRadius:6,fontSize:13,outline:"none",fontFamily:"monospace"}}/>
+                  <button onClick={saveApiKey} disabled={!apiKeyDraft.trim()} style={{padding:"8px 16px",background:apiKeyDraft.trim()?"#1A1A1A":"#ccc",color:"#fff",border:"none",borderRadius:6,fontSize:13,cursor:apiKeyDraft.trim()?"pointer":"not-allowed"}}>Guardar</button>
+                </div>
+              )}
+              <div style={{fontSize:11,color:"#bbb",marginTop:8}}>Conseguila en <span style={{color:"#888"}}>console.anthropic.com → API keys</span>.</div>
+            </div>
+
+            {/* SYNC GIST — rediseñado */}
+            <div style={{background:"#fff",border:"1px solid #E5E5E5",borderRadius:10,padding:"18px 20px"}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap",marginBottom:4}}>
+                <div style={{fontWeight:600,fontSize:14}}>Sincronización entre dispositivos</div>
+                {gistToken && gistId && (
+                  <div style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:gistAuto?"#1A1A1A":"#888"}}>
+                    <span style={{width:8,height:8,borderRadius:"50%",background:gistAuto?"#1A1A1A":"#ccc",display:"inline-block"}}></span>
+                    {gistAuto ? "Auto-sync activo" : "Auto-sync pausado"}
+                  </div>
+                )}
+              </div>
+              <div style={{fontSize:12,color:"#aaa",marginBottom:16,lineHeight:1.5}}>
+                Un único Gist privado de GitHub guarda toda tu cava. El mismo token + Gist ID en cada dispositivo = misma colección en todas partes.
+              </div>
+
+              {/* Estado actual */}
+              <div style={{background:"#FAFAFA",border:"1px solid #F0F0F0",borderRadius:8,padding:"14px 16px",marginBottom:16}}>
+                <div style={{display:"grid",gridTemplateColumns:"110px 1fr",gap:"8px 14px",fontSize:12,alignItems:"center"}}>
+                  <div style={{color:"#888"}}>Token</div>
+                  <div>
+                    {gistToken ? (
+                      <span style={{display:"inline-flex",alignItems:"center",gap:8}}>
+                        <code style={{background:"#fff",border:"1px solid #E5E5E5",padding:"3px 8px",borderRadius:5,fontSize:11,color:"#1A1A1A"}}>● configurado · …{gistToken.slice(-4)}</code>
+                        <button onClick={removeGistToken} style={{padding:"3px 10px",background:"transparent",color:"#888",border:"1px solid #E5E5E5",borderRadius:5,fontSize:11,cursor:"pointer"}}>Quitar</button>
+                      </span>
+                    ) : (
+                      <span style={{color:"#b45309"}}>⚠ no configurado</span>
+                    )}
+                  </div>
+                  <div style={{color:"#888"}}>Gist ID</div>
+                  <div>
+                    {gistId ? (
+                      <span style={{display:"inline-flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                        <code style={{background:"#fff",border:"1px solid #E5E5E5",padding:"3px 8px",borderRadius:5,fontSize:11,color:"#666"}}>{gistId}</code>
+                        <a href={`https://gist.github.com/${gistId}`} target="_blank" rel="noreferrer" style={{fontSize:11,color:"#888",textDecoration:"none"}}>↗</a>
+                        <button onClick={removeGistId} style={{padding:"3px 10px",background:"transparent",color:"#888",border:"1px solid #E5E5E5",borderRadius:5,fontSize:11,cursor:"pointer"}}>Quitar</button>
+                      </span>
+                    ) : (
+                      <span style={{color:"#b45309"}}>⚠ no configurado</span>
+                    )}
+                  </div>
+                  <div style={{color:"#888"}}>Última sync</div>
+                  <div style={{color:"#666"}}>{gistLastSync ? new Date(gistLastSync).toLocaleString("es-AR") : "—"}</div>
+                </div>
+              </div>
+
+              {/* Inputs cuando falta algo */}
+              {!gistToken && (
+                <div style={{marginBottom:14}}>
+                  <div style={{fontSize:12,color:"#666",marginBottom:6,fontWeight:500}}>Personal access token <code style={{background:"#F7F7F7",padding:"1px 5px",borderRadius:3,fontSize:11}}>gist</code></div>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                    <input type="password" autoComplete="off" value={gistTokenDraft} onChange={e=>setGistTokenDraft(e.target.value)} placeholder="ghp_..." style={{flex:1,minWidth:240,padding:"9px 11px",border:"1px solid #E5E5E5",borderRadius:7,fontSize:13,outline:"none",fontFamily:"monospace"}}/>
+                    <button onClick={saveGistToken} disabled={!gistTokenDraft.trim()} style={{padding:"9px 18px",background:gistTokenDraft.trim()?"#1A1A1A":"#ccc",color:"#fff",border:"none",borderRadius:7,fontSize:13,cursor:gistTokenDraft.trim()?"pointer":"not-allowed"}}>Guardar token</button>
+                  </div>
+                </div>
+              )}
+              {!gistId && (
+                <div style={{marginBottom:14}}>
+                  <div style={{fontSize:12,color:"#666",marginBottom:6,fontWeight:500}}>Gist ID</div>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                    <input type="text" autoComplete="off" value={gistIdDraft} onChange={e=>setGistIdDraft(e.target.value)} placeholder="ej: e7005fdf57ee59612e4ce2ef4839a18e" style={{flex:1,minWidth:240,padding:"9px 11px",border:"1px solid #E5E5E5",borderRadius:7,fontSize:13,outline:"none",fontFamily:"monospace"}}/>
+                    <button onClick={saveGistId} disabled={!gistIdDraft.trim()} style={{padding:"9px 18px",background:gistIdDraft.trim()?"#1A1A1A":"#ccc",color:"#fff",border:"none",borderRadius:7,fontSize:13,cursor:gistIdDraft.trim()?"pointer":"not-allowed"}}>Guardar ID</button>
+                  </div>
+                </div>
+              )}
+
+              {/* Toggle auto-sync */}
+              <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:gistAuto?"#F0F0F0":"#FAFAFA",border:`1px solid ${gistAuto?"#1A1A1A":"#E5E5E5"}`,borderRadius:7,marginBottom:12,flexWrap:"wrap"}}>
+                <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",userSelect:"none"}}>
+                  <input type="checkbox" checked={gistAuto} onChange={toggleGistAuto} style={{width:16,height:16,cursor:"pointer"}}/>
+                  <span style={{fontSize:13,fontWeight:500,color:gistAuto?"#1A1A1A":"#666"}}>Auto-sync</span>
+                </label>
+                <span style={{fontSize:11,color:"#888",flex:1,minWidth:160}}>
+                  Sube cambios en ~1.5s y baja cada 30s. También chequea al volver a la pestaña.
+                </span>
+              </div>
+
+              {/* Acciones manuales */}
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
+                <button onClick={subirAGist} disabled={!gistToken||!gistId||gistBusy} style={{padding:"8px 14px",background:"#fff",color:(!gistToken||!gistId||gistBusy)?"#ccc":"#666",border:"1px solid #E5E5E5",borderRadius:6,fontSize:12,cursor:(!gistToken||!gistId||gistBusy)?"not-allowed":"pointer"}}>⬆ Forzar subida</button>
+                <button onClick={bajarDeGist} disabled={!gistToken||!gistId||gistBusy} style={{padding:"8px 14px",background:"#fff",color:(!gistToken||!gistId||gistBusy)?"#ccc":"#666",border:"1px solid #E5E5E5",borderRadius:6,fontSize:12,cursor:(!gistToken||!gistId||gistBusy)?"not-allowed":"pointer"}}>⬇ Forzar bajada (sobreescribe)</button>
+              </div>
+
+              {gistStatus&&<div style={{fontSize:12,color:gistStatus.startsWith("✓")?"#1A1A1A":(gistStatus.startsWith("⏳")?"#888":(gistStatus.startsWith("⚠")?"#b45309":"#1A1A1A")),padding:"7px 10px",background:gistStatus.startsWith("✓")?"#F7F7F7":(gistStatus.startsWith("⏳")?"#fafafa":(gistStatus.startsWith("⚠")?"#fffbeb":"#FAFAFA")),borderRadius:5,border:`1px solid ${gistStatus.startsWith("✓")?"#1A1A1A":(gistStatus.startsWith("⏳")?"#eee":(gistStatus.startsWith("⚠")?"#fde68a":"#E5E5E5"))}`,marginBottom:8}}>{gistStatus}</div>}
+
+              <div style={{fontSize:11,color:"#bbb",marginTop:10,lineHeight:1.6}}>
+                <strong style={{color:"#888"}}>Token nuevo:</strong> github.com → Settings → Developer settings → Personal access tokens → <em>Tokens (classic)</em> → Generate. Único scope necesario: <code style={{background:"#F7F7F7",padding:"1px 4px",borderRadius:3,fontSize:10}}>gist</code>.<br/>
+                <strong style={{color:"#888"}}>Mismo Gist en todos lados:</strong> nunca borres el ID configurado — si lo borrás y subís sin uno, la app crea un Gist nuevo y se desincroniza con los otros dispositivos.
+              </div>
+            </div>
+
+            {/* IMPORT / EXPORT */}
+            <div style={{background:"#fff",border:"1px solid #E5E5E5",borderRadius:10,padding:"18px 20px"}}>
+              <div style={{fontWeight:600,fontSize:14,marginBottom:4}}>Backup / Import</div>
+              <div style={{fontSize:12,color:"#aaa",marginBottom:12}}>Tus datos viven en localStorage del navegador. Hacé export periódico para no perderlos.</div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
+                <button onClick={exportJSON} style={{padding:"8px 14px",background:"#1A1A1A",color:"#fff",border:"none",borderRadius:6,fontSize:12,cursor:"pointer"}}>↓ Exportar JSON</button>
+                <label style={{padding:"8px 14px",background:"#fff",color:"#1a1a1a",border:"1px solid #E5E5E5",borderRadius:6,fontSize:12,cursor:"pointer"}}>
+                  ↑ Importar JSON
+                  <input type="file" accept=".json" onChange={e=>{const f=e.target.files[0];if(f)importJSON(f);e.target.value="";}} style={{display:"none"}}/>
+                </label>
+                <label style={{padding:"8px 14px",background:"#fff",color:"#1a1a1a",border:"1px solid #E5E5E5",borderRadius:6,fontSize:12,cursor:"pointer"}}>
+                  📊 Importar CSV (Excel/Sheets)
+                  <input type="file" accept=".csv" onChange={e=>{const f=e.target.files[0];if(f)importCSV(f);e.target.value="";}} style={{display:"none"}}/>
+                </label>
+              </div>
+              {importMsg&&<div style={{fontSize:12,color:importMsg.startsWith("✓")?"#1A1A1A":"#1A1A1A",padding:"7px 10px",background:importMsg.startsWith("✓")?"#F7F7F7":"#FAFAFA",borderRadius:5,border:`1px solid ${importMsg.startsWith("✓")?"#1A1A1A":"#E5E5E5"}`}}>{importMsg}</div>}
+              <div style={{fontSize:11,color:"#bbb",marginTop:10,lineHeight:1.6}}>
+                <strong style={{color:"#888"}}>Formato CSV esperado:</strong> primera fila con columnas (en cualquier orden):<br/>
+                <code style={{background:"#F7F7F7",padding:"2px 5px",borderRadius:3,fontSize:10}}>nombre, bodega, anada, tipo, cepa, pais, provincia, precio, puntuacion, maridaje, notas, alcohol, tempServicio, guarda</code><br/>
+                Solo <strong>nombre</strong> es obligatorio. Los vinos importados quedan "Sin ubicar" — los asignás desde el mapa.
+              </div>
+            </div>
+
+            {/* INFO */}
+            <div style={{background:"#fff",border:"1px solid #E5E5E5",borderRadius:10,padding:"18px 20px"}}>
+              <div style={{fontWeight:600,fontSize:14,marginBottom:4}}>Cava configurada</div>
+              <div style={{fontSize:12,color:"#666",lineHeight:1.6}}>
+                INELRO 177 BOT STEEL DOOR · {conf.rows} filas × ({conf.colsFront} adelante + {conf.colsBack} atrás) = <strong>{totalPos} posiciones</strong>.<br/>
+                <span style={{color:"#aaa"}}>Si tu cava real tiene un layout distinto, decime y ajustamos.</span>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ══ MODAL DETALLE / FORMULARIO ══ */}
+      {modal&&(
+        <div onClick={e=>{if(e.target===e.currentTarget)closeModal();}}
+             style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.3)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div className="scroll" style={{background:"#fff",borderRadius:12,width:540,maxWidth:"100%",maxHeight:"92vh",overflowY:"auto",boxShadow:"0 16px 50px rgba(0,0,0,0.12)"}}>
+
+            {/* DETALLE */}
+            {modal.mode==="detail"&&selectedWine&&(()=>{
+              const w=selectedWine;
+              const fichaRows = [
+                ["Añada",w.anada||"—"],["Cepa(s)",w.cepa||"—"],
+                ["País",w.pais||"—"],["Provincia",w.provincia||"—"],
+                ["Precio",w.precio||"—"],["Puntuación",w.puntuacion?`${w.puntuacion}/100`:"—"],
+                ["Alcohol",w.alcohol?`${w.alcohol}%`:"—"],["Temp. servicio",w.tempServicio||"—"],
+              ];
+              const cataRows = [["Ojo",w.ojo],["Nariz",w.nariz],["Boca",w.boca],["Final",w.final]].filter(([_,v])=>v);
+              return <React.Fragment>
+                <div style={{padding:"18px 20px 0",display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                  <div>
+                    <span style={{padding:"2px 7px",borderRadius:4,fontSize:10,background:TYPE_BG[w.tipo]||"#f5f5f5",color:TYPE_COLOR[w.tipo]||"#888",fontWeight:500}}>{w.tipo}</span>
+                    <div style={{fontWeight:600,fontSize:17,marginTop:7,lineHeight:1.2}}>{w.nombre}</div>
+                    <div style={{fontSize:12,color:"#888",marginTop:3}}>{w.bodega}{w.pais?` · ${w.pais}`:""}{w.provincia?`, ${w.provincia}`:""}</div>
+                  </div>
+                  <button onClick={closeModal} style={{background:"none",border:"none",fontSize:17,color:"#ccc",cursor:"pointer"}}>✕</button>
+                </div>
+                <div style={{padding:"16px 20px"}}>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
+                    {fichaRows.map(([l,v])=>(
+                      <div key={l}>
+                        <div style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#bbb",textTransform:"uppercase",marginBottom:2}}>{l}</div>
+                        <div style={{fontSize:13}}>{v}</div>
+                      </div>
+                    ))}
+                    {w.guarda&&<div style={{gridColumn:"1/-1"}}><div style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#bbb",textTransform:"uppercase",marginBottom:2}}>Guarda recomendada</div><div style={{fontSize:13}}>{w.guarda}</div></div>}
+                    {w.maridaje&&<div style={{gridColumn:"1/-1"}}><div style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#bbb",textTransform:"uppercase",marginBottom:2}}>Maridaje</div><div style={{fontSize:13}}>{w.maridaje}</div></div>}
+                    {cataRows.length>0&&<div style={{gridColumn:"1/-1",borderTop:"1px solid #f0f0f0",paddingTop:10,marginTop:4}}>
+                      <div style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#bbb",textTransform:"uppercase",marginBottom:8}}>Notas de cata</div>
+                      <div style={{display:"flex",flexDirection:"column",gap:7}}>
+                        {cataRows.map(([l,v])=>(
+                          <div key={l} style={{display:"flex",gap:10,alignItems:"flex-start"}}>
+                            <div style={{fontSize:11,color:"#888",fontWeight:600,minWidth:50}}>{l}</div>
+                            <div style={{fontSize:12,color:"#444",flex:1,lineHeight:1.5}}>{v}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>}
+                    {w.notas&&<div style={{gridColumn:"1/-1"}}><div style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#bbb",textTransform:"uppercase",marginBottom:2}}>Notas adicionales</div><div style={{fontSize:13,color:"#555"}}>{w.notas}</div></div>}
+                    {w.foto&&<div style={{gridColumn:"1/-1"}}><div style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#bbb",textTransform:"uppercase",marginBottom:6}}>Foto</div><img src={w.foto} style={{width:"100%",maxHeight:200,objectFit:"contain",borderRadius:8,border:"1px solid #E5E5E5"}}/></div>}
+                  </div>
+                  {w.row!==""&&w.row!==undefined&&w.row>=0&&(
+                    <div style={{background:"#F7F7F7",borderRadius:7,padding:"9px 12px",display:"flex",gap:20}}>
+                      <div><div style={{fontSize:10,color:"#bbb",fontWeight:600,letterSpacing:"0.07em",textTransform:"uppercase",marginBottom:2}}>Cava</div><div style={{fontSize:12}}>Cava 1</div></div>
+                      <div><div style={{fontSize:10,color:"#bbb",fontWeight:600,letterSpacing:"0.07em",textTransform:"uppercase",marginBottom:2}}>Posición</div><div style={{fontSize:12}}>Fila {w.row+1} · Col {w.col+1} · {w.zona==="adelante"?"Adelante":"Atrás"}</div></div>
+                    </div>
+                  )}
+                </div>
+                <div style={{padding:"0 20px 18px",display:"flex",gap:8,flexWrap:"wrap"}}>
+                  <button onClick={()=>openFormEdit(w)} style={{padding:"7px 14px",background:"#1A1A1A",color:"#fff",border:"none",borderRadius:6,fontSize:12,cursor:"pointer"}}>Editar</button>
+                  <button onClick={()=>registrarConsumo(w)} style={{padding:"7px 14px",background:"#fff",color:"#1a1a1a",border:"1px solid #E5E5E5",borderRadius:6,fontSize:12,cursor:"pointer"}}>🍷 Consumida</button>
+                  <button onClick={()=>deleteWine(w.id)} style={{padding:"7px 14px",background:"#fff",color:"#1A1A1A",border:"1px solid #E5E5E5",borderRadius:6,fontSize:12,cursor:"pointer",marginLeft:"auto"}}>Eliminar</button>
+                </div>
+              </React.Fragment>;
+            })()}
+
+            {/* FORMULARIO */}
+            {modal.mode==="form"&&(
+              <React.Fragment>
+                <div style={{padding:"16px 20px",borderBottom:"1px solid #f0f0f0"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:scanImages.length>0?12:0}}>
+                    <div style={{fontWeight:600,fontSize:14}}>{modal.editId?"Editar vino":"Agregar vino"}</div>
+                    <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                      <label style={{padding:"6px 12px",background:"#F7F7F7",border:"1px solid #E5E5E5",borderRadius:6,fontSize:12,cursor:"pointer",color:"#555",display:"flex",alignItems:"center",gap:5}}>
+                        📷 {scanImages.length>0?`+foto (${scanImages.length})`:"Escanear etiqueta"}
+                        <input type="file" accept="image/*" capture="environment" multiple onChange={onScanFilesChange} style={{display:"none"}}/>
+                      </label>
+                      {scanImages.length>0&&(
+                        <button onClick={scanLabel} disabled={scanning} style={{padding:"6px 12px",background:"#1A1A1A",color:"#fff",border:"none",borderRadius:6,fontSize:12,cursor:scanning?"not-allowed":"pointer"}}>
+                          {scanning?"⏳ Analizando…":"✓ Analizar"}
+                        </button>
+                      )}
+                      <button onClick={closeModal} style={{background:"none",border:"none",fontSize:17,color:"#ccc",cursor:"pointer"}}>✕</button>
+                    </div>
+                  </div>
+                  {scanImages.length>0&&(
+                    <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:10}}>
+                      {scanImages.map((img,i)=>(
+                        <div key={i} style={{position:"relative"}}>
+                          <img src={img.preview || `data:${img.type};base64,${img.data}`} style={{width:56,height:56,objectFit:"cover",borderRadius:6,border:"1px solid #E5E5E5"}}/>
+                          <button onClick={()=>removeImage(i)} style={{position:"absolute",top:-6,right:-6,width:18,height:18,borderRadius:"50%",background:"#1A1A1A",color:"#fff",border:"none",fontSize:10,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>✕</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {scanError&&<div style={{marginTop:8,padding:"7px 10px",background:"#FAFAFA",border:"1px solid #E5E5E5",borderRadius:5,fontSize:11,color:"#1A1A1A"}}>{scanError}</div>}
+                </div>
+                <div style={{padding:"14px 20px"}}>
+                  <SectionLabel>Datos básicos</SectionLabel>
+                  <G2><FI l="Etiqueta / Nombre *" v={form.nombre} s={v=>setForm(f=>({...f,nombre:v}))}/><FI l="Bodega *" v={form.bodega} s={v=>setForm(f=>({...f,bodega:v}))}/></G2>
+                  <G2><FI l="Añada" v={form.anada} s={v=>setForm(f=>({...f,anada:v}))} t="number" p="Ej: 2021"/><FSel l="Tipo" v={form.tipo} s={v=>setForm(f=>({...f,tipo:v}))} o={TIPOS}/></G2>
+                  <G2><FI l="Cepa(s)" v={form.cepa} s={v=>setForm(f=>({...f,cepa:v}))} p="Ej: Malbec"/><FSel l="País" v={form.pais} s={v=>setForm(f=>({...f,pais:v}))} o={PAISES}/></G2>
+                  <G2><FI l="Provincia / Región" v={form.provincia} s={v=>setForm(f=>({...f,provincia:v}))} p="Ej: Mendoza"/><FI l="Precio" v={form.precio} s={v=>setForm(f=>({...f,precio:v}))} p="Ej: $5.000–$8.000"/></G2>
+
+                  <SectionLabel>Ficha técnica</SectionLabel>
+                  <G2><FI l="Alcohol (% vol)" v={form.alcohol} s={v=>setForm(f=>({...f,alcohol:v}))} p="Ej: 13.5"/><FI l="Temp. servicio" v={form.tempServicio} s={v=>setForm(f=>({...f,tempServicio:v}))} p="Ej: 16-18°C"/></G2>
+                  <G2><FI l="Guarda recomendada" v={form.guarda} s={v=>setForm(f=>({...f,guarda:v}))} p="Ej: 5-10 años"/><FI l="Puntuación (0–100)" v={form.puntuacion} s={v=>setForm(f=>({...f,puntuacion:v}))} t="number"/></G2>
+                  <FI l="Maridaje" v={form.maridaje} s={v=>setForm(f=>({...f,maridaje:v}))} p="Ej: Carnes rojas, estofados"/>
+
+                  <SectionLabel>Notas de cata</SectionLabel>
+                  <G2><FI l="Ojo (color, capa)" v={form.ojo} s={v=>setForm(f=>({...f,ojo:v}))} p="Rojo rubí intenso, capa media"/><FI l="Nariz (aromas)" v={form.nariz} s={v=>setForm(f=>({...f,nariz:v}))} p="Frutos rojos, especias, vainilla"/></G2>
+                  <G2><FI l="Boca (cuerpo, taninos, acidez)" v={form.boca} s={v=>setForm(f=>({...f,boca:v}))} p="Cuerpo medio, taninos suaves"/><FI l="Final (largo, persistencia)" v={form.final} s={v=>setForm(f=>({...f,final:v}))} p="Persistente, mineral"/></G2>
+                  <div style={{marginBottom:12}}>
+                    <label style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#aaa",textTransform:"uppercase",display:"block",marginBottom:4}}>Notas adicionales</label>
+                    <textarea value={form.notas} onChange={e=>setForm(f=>({...f,notas:e.target.value}))} rows={2} style={{width:"100%",padding:"7px 10px",border:"1px solid #E5E5E5",borderRadius:6,fontSize:13,outline:"none",resize:"vertical",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                  </div>
+
+                  <SectionLabel>Foto</SectionLabel>
+                  <div style={{marginBottom:12}}>
+                    {form.foto ? (
+                      <div style={{position:"relative",display:"inline-block"}}>
+                        <img src={form.foto} style={{width:100,height:100,objectFit:"cover",borderRadius:8,border:"1px solid #E5E5E5"}}/>
+                        <button onClick={()=>setForm(f=>({...f,foto:""}))} style={{position:"absolute",top:-6,right:-6,width:20,height:20,borderRadius:"50%",background:"#1A1A1A",color:"#fff",border:"none",fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+                      </div>
+                    ) : (
+                      <label style={{display:"inline-flex",alignItems:"center",gap:6,padding:"8px 14px",border:"1px dashed #E5E5E5",borderRadius:7,cursor:"pointer",fontSize:12,color:"#aaa"}}>
+                        📷 Agregar foto
+                        <input type="file" accept="image/*" capture="environment" onChange={e=>{
+                          const file = e.target.files[0]; if (!file) return;
+                          const r = new FileReader();
+                          r.onload = ev => setForm(f=>({...f,foto:ev.target.result}));
+                          r.readAsDataURL(file);
+                        }} style={{display:"none"}}/>
+                      </label>
+                    )}
+                  </div>
+
+                  <SectionLabel>Ubicación</SectionLabel>
+                  <div style={{background:"#F7F7F7",borderRadius:8,padding:"10px 12px",marginBottom:4}}>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+                      <div>
+                        <label style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#aaa",textTransform:"uppercase",display:"block",marginBottom:4}}>Dónde está</label>
+                        <select value={form.cava} onChange={e=>setForm(f=>({...f,cava:e.target.value, ...(e.target.value==="caja"?{row:"",col:""}:{})}))} style={ss}>
+                          <option value="grande">En cava (INELRO 177)</option>
+                          <option value="caja">📦 En caja (fuera de cava)</option>
+                        </select>
+                      </div>
+                    </div>
+                    {form.cava==="grande" && (
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+                      <div>
+                        <label style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#aaa",textTransform:"uppercase",display:"block",marginBottom:4}}>Zona</label>
+                        <select value={form.zona} onChange={e=>setForm(f=>({...f,zona:e.target.value}))} style={ss}>
+                          <option value="adelante">Adelante</option>
+                          <option value="atrás">Atrás</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#aaa",textTransform:"uppercase",display:"block",marginBottom:4}}>Estante</label>
+                        <select value={form.row} onChange={e=>setForm(f=>({...f,row:e.target.value===""?"":parseInt(e.target.value)}))} style={ss}>
+                          <option value="">—</option>
+                          {Array.from({length:conf.rows},(_,i)=><option key={i} value={i}>{i+1}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#aaa",textTransform:"uppercase",display:"block",marginBottom:4}}>Posición</label>
+                        <select value={form.col} onChange={e=>setForm(f=>({...f,col:e.target.value===""?"":parseInt(e.target.value)}))} style={ss}>
+                          <option value="">—</option>
+                          {Array.from({length:form.zona==="adelante"?conf.colsFront:conf.colsBack},(_,i)=><option key={i} value={i}>{i+1}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    )}
+                    <div style={{fontSize:10,color:"#bbb",marginTop:6}}>{form.cava==="caja"?"En caja: no se asigna estante ni posición.":"Dejá Estante/Posición en \"—\" para guardar como \"Sin ubicar\" dentro del estante."}</div>
+                  </div>
+
+                  {formErr&&<div style={{color:"#1A1A1A",fontSize:12,marginTop:8,padding:"7px 10px",background:"#FAFAFA",borderRadius:5,border:"1px solid #E5E5E5"}}>{formErr}</div>}
+                </div>
+                <div style={{padding:"0 20px 18px",display:"flex",gap:8}}>
+                  <button onClick={saveWine} style={{padding:"8px 18px",background:"#1A1A1A",color:"#fff",border:"none",borderRadius:6,fontSize:13,cursor:"pointer",fontWeight:500}}>
+                    {modal.editId?"Guardar cambios":"Agregar a la cava"}
+                  </button>
+                  <button onClick={closeModal} style={{padding:"8px 14px",background:"#fff",color:"#666",border:"1px solid #E5E5E5",borderRadius:6,fontSize:13,cursor:"pointer"}}>Cancelar</button>
+                </div>
+              </React.Fragment>
+            )}
+
+            {/* CONSUMO (registrar o editar nota) */}
+            {(modal.mode==="consumo"||modal.mode==="editConsumo")&&selectedWine&&(
+              <React.Fragment>
+                <div style={{padding:"18px 20px 12px",borderBottom:"1px solid #f0f0f0"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}}>
+                    <div>
+                      <div style={{fontSize:11,color:"#1A1A1A",fontWeight:600,letterSpacing:"0.07em",textTransform:"uppercase",marginBottom:5}}>{modal.mode==="editConsumo"?"Editar nota de consumo":"🍷 Registrar consumo"}</div>
+                      <div style={{fontWeight:600,fontSize:16,lineHeight:1.2}}>{selectedWine.nombre}</div>
+                      <div style={{fontSize:12,color:"#888",marginTop:3}}>{selectedWine.bodega}{selectedWine.anada?` · ${selectedWine.anada}`:""}</div>
+                    </div>
+                    <button onClick={closeModal} style={{background:"none",border:"none",fontSize:17,color:"#ccc",cursor:"pointer"}}>✕</button>
+                  </div>
+                </div>
+                <div style={{padding:"16px 20px"}}>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+                    <div>
+                      <label style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#aaa",textTransform:"uppercase",display:"block",marginBottom:4}}>Fecha</label>
+                      <input type="date" value={consumoForm.fecha} onChange={e=>setConsumoForm(f=>({...f,fecha:e.target.value}))} style={{...ss,cursor:"text"}}/>
+                    </div>
+                    <div>
+                      <label style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#aaa",textTransform:"uppercase",display:"block",marginBottom:4}}>Puntuación final (opcional)</label>
+                      <input type="text" value={consumoForm.puntuacionFinal} onChange={e=>setConsumoForm(f=>({...f,puntuacionFinal:e.target.value}))} placeholder="ej: 92" style={{...ss,cursor:"text"}}/>
+                    </div>
+                  </div>
+                  <div style={{marginBottom:12}}>
+                    <label style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#aaa",textTransform:"uppercase",display:"block",marginBottom:4}}>Ocasión / Con quién (opcional)</label>
+                    <input type="text" value={consumoForm.ocasion} onChange={e=>setConsumoForm(f=>({...f,ocasion:e.target.value}))} placeholder="ej: cena con Pablo y Sofi · asado del domingo" style={{...ss,cursor:"text"}}/>
+                  </div>
+                  <div style={{marginBottom:8}}>
+                    <label style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#aaa",textTransform:"uppercase",display:"block",marginBottom:4}}>Notas (opcional)</label>
+                    <textarea value={consumoForm.notaConsumo} onChange={e=>setConsumoForm(f=>({...f,notaConsumo:e.target.value}))} rows={4} placeholder="Cómo estuvo, qué te pareció, qué notaste, con qué lo combinaste…" style={{...ss,cursor:"text",resize:"vertical",fontFamily:"inherit"}}/>
+                  </div>
+                  {modal.mode==="consumo"&&(
+                    <div style={{fontSize:11,color:"#aaa",background:"#FAFAF8",padding:"8px 10px",borderRadius:6,border:"1px solid #F0EDE8",lineHeight:1.5}}>
+                      Esto saca la botella del inventario y la pasa al historial. Si te confundís, podés volverla atrás desde el tab Historial.
+                    </div>
+                  )}
+                </div>
+                <div style={{padding:"0 20px 18px",display:"flex",gap:8}}>
+                  <button onClick={modal.mode==="editConsumo"?guardarNotaConsumo:confirmarConsumo} style={{padding:"8px 18px",background:"#1A1A1A",color:"#fff",border:"none",borderRadius:6,fontSize:13,cursor:"pointer",fontWeight:500}}>
+                    {modal.mode==="editConsumo"?"Guardar cambios":"Confirmar consumo"}
+                  </button>
+                  <button onClick={closeModal} style={{padding:"8px 14px",background:"#fff",color:"#666",border:"1px solid #E5E5E5",borderRadius:6,fontSize:13,cursor:"pointer"}}>Cancelar</button>
+                </div>
+              </React.Fragment>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* CONFIRM MODAL */}
+      {confirmModal&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div style={{background:"#fff",borderRadius:12,padding:"24px 24px 20px",maxWidth:340,width:"100%",boxShadow:"0 16px 50px rgba(0,0,0,0.15)"}}>
+            <div style={{fontSize:14,color:"#1a1a1a",marginBottom:20,lineHeight:1.5}}>{confirmModal.msg}</div>
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+              <button onClick={()=>setConfirmModal(null)} style={{padding:"8px 18px",background:"#fff",color:"#666",border:"1px solid #E5E5E5",borderRadius:7,fontSize:13,cursor:"pointer"}}>Cancelar</button>
+              <button onClick={()=>{const fn=confirmModal.onOk;setConfirmModal(null);fn();}} style={{padding:"8px 18px",background:"#1A1A1A",color:"#fff",border:"none",borderRadius:7,fontSize:13,cursor:"pointer",fontWeight:500}}>Confirmar</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MapCell({wine,onClick,dragActive,onDrop}){
+  const [h,setH]=useState(false);
+  const [over,setOver]=useState(false);
+  const draggingNow = !!dragActive;
+  const blocked = draggingNow && !!wine;
+  const droppable = draggingNow && !wine;
+  const cls = over ? (blocked ? "vj-cell-drop-blocked" : "vj-cell-drop-over")
+                   : (droppable ? "vj-cell-empty-active" : (blocked ? "vj-cell-occupied-active" : ""));
+  return(
+    <div onClick={onClick} onMouseEnter={()=>setH(true)} onMouseLeave={()=>setH(false)}
+         className={cls}
+         onDragOver={draggingNow ? (e)=>{ e.preventDefault(); if(!blocked) e.dataTransfer.dropEffect="move"; else e.dataTransfer.dropEffect="none"; setOver(true); } : undefined}
+         onDragLeave={draggingNow ? ()=>setOver(false) : undefined}
+         onDrop={draggingNow ? (e)=>{ e.preventDefault(); setOver(false); if(!blocked && onDrop) onDrop(e); } : undefined}
+         title={wine?`${wine.nombre}${wine.anada?" "+wine.anada:""}`:(droppable?"Soltar acá":"+")}
+         style={{width:20,height:20,borderRadius:3,cursor:"pointer",marginRight:2,flexShrink:0,
+           background:wine?(h?TYPE_COLOR[wine.tipo]:TYPE_BG[wine.tipo]):(h?"#F0F0F0":"#FAFAFA"),
+           border:wine?`1px solid ${TYPE_COLOR[wine.tipo]}`:"1px solid #E5E5E5",
+           transition:"all 0.1s",transform:h?"scale(1.2)":"scale(1)",position:"relative",zIndex:h?2:1}}/>
+  );
+}
+function SelF({v,s,def,opts}){
+  return(
+    <select value={v} onChange={e=>s(e.target.value)} style={{padding:"7px 10px",border:"1px solid #E5E5E5",borderRadius:7,fontSize:12,color:"#555",background:"#fff",cursor:"pointer",outline:"none"}}>
+      {def&&<option value="">{def}</option>}
+      {opts.map(o=>Array.isArray(o)?<option key={o[0]} value={o[0]}>{o[1]}</option>:<option key={o} value={o}>{o}</option>)}
+    </select>
+  );
+}
+function G2({children}){return <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>{children}</div>;}
+function FI({l,v,s,t="text",p=""}){
+  return(
+    <div style={{marginBottom:11}}>
+      <label style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#aaa",textTransform:"uppercase",display:"block",marginBottom:4}}>{l}</label>
+      <input type={t} value={v} onChange={e=>s(e.target.value)} placeholder={p} style={{width:"100%",padding:"7px 10px",border:"1px solid #E5E5E5",borderRadius:6,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+    </div>
+  );
+}
+function FSel({l,v,s,o}){
+  return(
+    <div style={{marginBottom:11}}>
+      <label style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#aaa",textTransform:"uppercase",display:"block",marginBottom:4}}>{l}</label>
+      <select value={v} onChange={e=>s(e.target.value)} style={{width:"100%",padding:"7px 10px",border:"1px solid #E5E5E5",borderRadius:6,fontSize:13,outline:"none",background:"#fff",cursor:"pointer",fontFamily:"inherit"}}>
+        {o.map(x=><option key={x} value={x}>{x}</option>)}
+      </select>
+    </div>
+  );
+}
+function SectionLabel({children}){
+  return <div style={{fontSize:10,fontWeight:700,letterSpacing:"0.1em",color:"#1a1a1a",textTransform:"uppercase",borderBottom:"1px solid #f0f0f0",paddingBottom:5,marginBottom:10,marginTop:6}}>{children}</div>;
+}
+
+function StatPanel({title, rows, colorOf}){
+  const max = rows.length ? Math.max(...rows.map(r=>r[1])) : 1;
+  return (
+    <div style={{background:"#fff",border:"1px solid #E5E5E5",borderRadius:10,padding:"16px 18px"}}>
+      <div style={{fontWeight:600,fontSize:13,marginBottom:14}}>{title} <span style={{color:"#bbb",fontWeight:400,fontSize:11,marginLeft:4}}>({rows.length})</span></div>
+      {rows.length === 0 ? (
+        <div style={{fontSize:12,color:"#bbb",padding:"20px 0",textAlign:"center"}}>Sin datos</div>
+      ) : (
+        <div style={{display:"flex",flexDirection:"column",gap:7}}>
+          {rows.map(([label,count])=>(
+            <div key={label} style={{display:"flex",alignItems:"center",gap:8}}>
+              <div style={{fontSize:11,color:"#555",minWidth:110,maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}</div>
+              <div style={{flex:1,height:14,background:"#F7F7F7",borderRadius:3,overflow:"hidden",position:"relative"}}>
+                <div style={{width:`${(count/max)*100}%`,height:"100%",background:colorOf(label),opacity:0.8,borderRadius:3,transition:"width 0.3s"}}/>
+              </div>
+              <div style={{fontSize:11,color:"#888",minWidth:24,textAlign:"right",fontWeight:600}}>{count}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+</script>
+</body>
+</html>

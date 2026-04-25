@@ -1,0 +1,6 @@
+.DS_Store
+Thumbs.db
+
+# Archivos legacy (versiones viejas del dashboard, anteriores a v5)
+vino-jano-dashboard.html
+vino-jano/

@@ -540,27 +540,50 @@ function App() {
     try {
       const text = await callGemini({
         apiKey,
-        maxTokens: 2048,
+        maxTokens: 3072,
         json: true,
         images: scanImages,
-        prompt: `Analizá estas ${scanImages.length} foto(s) de la misma etiqueta de vino y devolvé SOLO un JSON con esta estructura exacta:\n{"nombre":"","bodega":"","anada":"","tipo":"Tinto","cepa":"","pais":"","provincia":"","alcohol":"","maridaje":""}\n\nNotas: "tipo" debe ser uno de: Tinto, Blanco, Rosado, Naranjo, Espumante, Champagne, Prosecco, Cava. "alcohol" como número (ej "13.5"). Si un dato no se ve, dejalo "".`
+        prompt: `Sos sommelier experto. Analizá estas ${scanImages.length} foto(s) de la misma etiqueta/contraetiqueta de vino. Primero identificá nombre, bodega y añada de la foto. Después completá toda la ficha técnica del vino usando tu conocimiento sobre esa etiqueta específica.
+
+Devolvé EXCLUSIVAMENTE un JSON con esta estructura exacta:
+
+{
+  "nombre":"<nombre/etiqueta visible>",
+  "bodega":"<bodega/winery visible>",
+  "anada":"<año visible>",
+  "tipo":"<uno de: Tinto, Blanco, Rosado, Naranjo, Espumante, Champagne, Prosecco, Cava, Crémant, Pétillant Naturel, Dulce Natural, Cosecha Tardía, Sauternes, Icewine, Passito, Vin Santo, Jerez / Sherry, Oporto, Madeira, Marsala, Vermut, Sidra, Sake, Hidromiel, Otro>",
+  "cepa":"<varietal o blend, ej 'Malbec' o 'Cab Sauv 60% / Merlot 40%'>",
+  "pais":"<país de origen>",
+  "provincia":"<región/provincia/DOC>",
+  "alcohol":"<grado alcohólico, número decimal ej 13.5>",
+  "tempServicio":"<rango ej 16-18°C>",
+  "guarda":"<ej '5-10 años' o 'Para tomar joven'>",
+  "maridaje":"<3-5 maridajes separados por coma>",
+  "ojo":"<descripción visual breve del vino, no de la etiqueta>",
+  "nariz":"<aromas principales>",
+  "boca":"<cuerpo, taninos, acidez>",
+  "final":"<persistencia, postgusto>",
+  "notas":"<dato curioso, terroir, premio o método de elaboración en 1-2 oraciones>"
+}
+
+Reglas:
+- nombre, bodega, anada y los datos visibles en la contraetiqueta (alcohol, cepa, etc.) los sacás de la foto.
+- El resto lo completás con tu conocimiento sobre ese vino específico (no inventes promedios genéricos del varietal).
+- Si el vino te resulta desconocido, completá lo que puedas inferir de la etiqueta y dejá "" lo demás.
+- NO INVENTES nada que no puedas defender.`
       });
       const m = text.match(/\{[\s\S]*\}/);
       if (!m) { setScanError("Respuesta sin JSON: " + text.slice(0,200)); setScanning(false); return; }
       const parsed = JSON.parse(m[0]);
-      setForm(f => ({
-        ...f,
-        nombre: parsed.nombre || f.nombre,
-        bodega: parsed.bodega || f.bodega,
-        anada: parsed.anada || f.anada,
-        tipo: parsed.tipo || f.tipo,
-        cepa: parsed.cepa || f.cepa,
-        pais: parsed.pais || f.pais,
-        provincia: parsed.provincia || f.provincia,
-        alcohol: parsed.alcohol || f.alcohol,
-        maridaje: parsed.maridaje || f.maridaje,
-      }));
+      setForm(f => {
+        const next = { ...f };
+        ["nombre","bodega","anada","tipo","cepa","pais","provincia","alcohol","tempServicio","guarda","maridaje","ojo","nariz","boca","final","notas"].forEach(k => {
+          if (parsed[k] && (!f[k] || String(f[k]).trim()==="")) next[k] = parsed[k];
+        });
+        return next;
+      });
       setScanImages([]);
+      setSearchInfoMsg("✓ Ficha cargada desde la foto. Revisá los campos antes de guardar.");
     } catch (err) {
       setScanError("Error: " + (err?.message || String(err)));
     }

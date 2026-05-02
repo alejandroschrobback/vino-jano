@@ -563,6 +563,7 @@ Devolvé EXCLUSIVAMENTE un JSON con esta estructura exacta:
   "tempServicio":"<rango ej 16-18°C>",
   "guarda":"<ej '5-10 años' o 'Para tomar joven'>",
   "maridaje":"<3-5 maridajes separados por coma>",
+  "precio":"<precio aproximado en mercado argentino, formato '$5.000-$8.000' (ARS) o 'USD 25-35' si solo conocés referencia internacional>",
   "ojo":"<descripción visual breve del vino, no de la etiqueta>",
   "nariz":"<aromas principales>",
   "boca":"<cuerpo, taninos, acidez>",
@@ -573,6 +574,7 @@ Devolvé EXCLUSIVAMENTE un JSON con esta estructura exacta:
 Reglas:
 - nombre, bodega, anada y los datos visibles en la contraetiqueta (alcohol, cepa, etc.) los sacás de la foto.
 - El resto lo completás con tu conocimiento sobre ese vino específico (no inventes promedios genéricos del varietal).
+- Para precio: estimá rango de mercado argentino actual ("$X.XXX-$Y.YYY") si tenés referencia. Si solo conocés precio internacional, ponelo en USD. Si no estás seguro, dejá "".
 - Si el vino te resulta desconocido, completá lo que puedas inferir de la etiqueta y dejá "" lo demás.
 - NO INVENTES nada que no puedas defender.`
       });
@@ -581,7 +583,7 @@ Reglas:
       const parsed = JSON.parse(m[0]);
       setForm(f => {
         const next = { ...f };
-        ["nombre","bodega","anada","tipo","cepa","pais","provincia","alcohol","tempServicio","guarda","maridaje","ojo","nariz","boca","final","notas"].forEach(k => {
+        ["nombre","bodega","anada","tipo","cepa","pais","provincia","alcohol","tempServicio","guarda","maridaje","precio","ojo","nariz","boca","final","notas"].forEach(k => {
           if (parsed[k] && (!f[k] || String(f[k]).trim()==="")) next[k] = parsed[k];
         });
         return next;
@@ -617,6 +619,7 @@ Reglas:
   "tempServicio":"<rango ej 16-18°C>",
   "guarda":"<ej 5-10 años o 'Para tomar joven'>",
   "maridaje":"<3-5 maridajes separados por coma>",
+  "precio":"<precio aproximado en mercado argentino, formato '$5.000-$8.000' (ARS) o 'USD 25-35' si solo conocés referencia internacional>",
   "ojo":"<descripción visual breve>",
   "nariz":"<aromas principales>",
   "boca":"<cuerpo, taninos, acidez>",
@@ -624,7 +627,9 @@ Reglas:
   "notas":"<dato curioso, premio, terroir, en 1-2 oraciones>"
 }
 
-Si no estás seguro de un campo NO INVENTES, dejalo "". Si el vino no existe o no encontrás info confiable devolvé el JSON con todos los campos vacíos excepto "notas":"No encontré información confiable de este vino.".`;
+Reglas:
+- Para precio: estimá rango de mercado argentino actual en ARS si lo conocés. Si solo tenés referencia internacional usá USD. Si no estás seguro, dejá "".
+- Si no estás seguro de un campo NO INVENTES, dejalo "". Si el vino no existe o no encontrás info confiable devolvé el JSON con todos los campos vacíos excepto "notas":"No encontré información confiable de este vino.".`;
       const text = await callGemini({ apiKey, maxTokens: 2048, json: true, prompt });
       const cleaned = text.replace(/```json|```/g, "").trim();
       const m = cleaned.match(/\{[\s\S]*\}/);
@@ -633,7 +638,7 @@ Si no estás seguro de un campo NO INVENTES, dejalo "". Si el vino no existe o n
       // Solo sobreescribo campos vacíos en el form (no piso lo que ya cargaste a mano)
       setForm(f => {
         const next = { ...f };
-        ["nombre","bodega","anada","tipo","cepa","pais","provincia","alcohol","tempServicio","guarda","maridaje","ojo","nariz","boca","final","notas"].forEach(k => {
+        ["nombre","bodega","anada","tipo","cepa","pais","provincia","alcohol","tempServicio","guarda","maridaje","precio","ojo","nariz","boca","final","notas"].forEach(k => {
           if (parsed[k] && (!f[k] || String(f[k]).trim()==="")) next[k] = parsed[k];
         });
         return next;
@@ -669,6 +674,7 @@ Si no estás seguro de un campo NO INVENTES, dejalo "". Si el vino no existe o n
   "tempServicio":"<rango ej 16-18°C>",
   "guarda":"<ej '5-10 años'>",
   "maridaje":"<3-5 maridajes separados por coma>",
+  "precio":"<precio aproximado en mercado argentino, formato '$5.000-$8.000' (ARS) o 'USD 25-35' si solo conocés referencia internacional>",
   "ojo":"<descripción visual breve>",
   "nariz":"<aromas principales>",
   "boca":"<cuerpo, taninos, acidez>",
@@ -676,7 +682,9 @@ Si no estás seguro de un campo NO INVENTES, dejalo "". Si el vino no existe o n
   "notas":"<dato curioso, terroir o premio en 1-2 oraciones>"
 }
 
-Reglas: completá lo que sepas con razonable certeza. NO INVENTES. Si el vino no existe o no encontrás info confiable, devolvé el JSON con todos los campos vacíos excepto "notas":"No encontré información confiable de este vino.".`;
+Reglas:
+- Para precio: estimá rango de mercado argentino actual en ARS si lo conocés. Si solo tenés referencia internacional usá USD. Si no estás seguro, dejá "".
+- Completá lo que sepas con razonable certeza. NO INVENTES. Si el vino no existe o no encontrás info confiable, devolvé el JSON con todos los campos vacíos excepto "notas":"No encontré información confiable de este vino.".`;
     const text = await callGemini({ apiKey, maxTokens: 2048, json: true, prompt });
     const m = text.match(/\{[\s\S]*\}/);
     if (!m) throw new Error("Respuesta sin JSON");
@@ -687,7 +695,7 @@ Reglas: completá lo que sepas con razonable certeza. NO INVENTES. Si el vino no
   const wineNeedsEnrichment = (w) => {
     const empty = (v) => !v || String(v).trim() === "";
     return empty(w.cepa) || empty(w.alcohol) || empty(w.tempServicio) || empty(w.guarda)
-        || empty(w.maridaje) || empty(w.ojo) || empty(w.nariz) || empty(w.boca) || empty(w.final);
+        || empty(w.maridaje) || empty(w.precio) || empty(w.ojo) || empty(w.nariz) || empty(w.boca) || empty(w.final);
   };
   const stopEnrichAll = () => { enrichStopRef.current = true; };
   const enrichAllWines = () => {
@@ -715,7 +723,7 @@ Reglas: completá lo que sepas con razonable certeza. NO INVENTES. Si el vino no
             const parsed = await fetchWineFichaFromGemini(w);
             // Solo rellenar campos vacíos del vino existente
             const updated = { ...w };
-            ["tipo","cepa","pais","provincia","alcohol","tempServicio","guarda","maridaje","ojo","nariz","boca","final","notas"].forEach(k => {
+            ["tipo","cepa","pais","provincia","alcohol","tempServicio","guarda","maridaje","precio","ojo","nariz","boca","final","notas"].forEach(k => {
               if (parsed[k] && (!w[k] || String(w[k]).trim()==="")) updated[k] = parsed[k];
             });
             workingDb = { ...workingDb, wines: workingDb.wines.map(x => x.id === w.id ? updated : x) };

@@ -78,7 +78,7 @@ const PAISES = ["Afganistán","Albania","Alemania","Andorra","Angola","Arabia Sa
 // Paleta tipo "color del vino" — cada estilo usa un tono que se parece al color real del vino en la copa.
 // TYPE_COLOR = tono saturado (borde de celda + texto del badge). TYPE_BG = tinte muy claro del mismo tono (relleno).
 const TYPE_COLOR = {
-  "Tinto":"#7B1F2A","Blanco":"#D6BD2E","Rosado":"#D45A7C","Naranja":"#D17A2D",
+  "Tinto":"#7B1F2A","Blanco":"#A8901F","Rosado":"#D45A7C","Naranja":"#D17A2D",
   "Espumante":"#7FA8BC","Champagne":"#A87523","Prosecco":"#9CB54A","Cava":"#C89344","Crémant":"#BFA850","Pétillant Naturel":"#C8B884",
   "Dulce Natural":"#A8731F","Cosecha Tardía":"#A8731F","Sauternes":"#B8821F","Icewine":"#C99227","Passito":"#7A4A1A","Vin Santo":"#7A4A1A",
   "Jerez / Sherry":"#9C6A1F","Oporto":"#5C1A1B","Madeira":"#6F3A14","Marsala":"#7A2F1A","Vermut":"#8B4A2A",
@@ -752,6 +752,8 @@ function App() {
   const getWineAt = (cava, row, col, zona) => db.wines.find(w => w.cava===cava && w.row===row && w.col===col && w.zona===zona) || null;
   const totalPos = conf.rows * (conf.colsFront + conf.colsBack);
   const ocupacion = db.wines.filter(w => w.row !== "" && w.col !== "").length;
+  const enCaja = db.wines.filter(w => w.cava === "caja").length;
+  const enCavaCount = db.wines.length - enCaja;
   const paises = [...new Set(db.wines.map(w => w.pais).filter(Boolean))];
   const porTipo = TIPOS.reduce((a,t) => { const n = db.wines.filter(w=>w.tipo===t).length; if(n>0) a.push({t,n}); return a; }, []);
 
@@ -918,8 +920,26 @@ function App() {
 
       {/* STATS */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,padding:"14px 24px 0"}}>
+        {/* Card especial: desglose Cava / Caja / Total */}
+        <div style={{background:"#fff",border:"1px solid #E5E5E5",borderRadius:8,padding:"14px 16px"}}>
+          <div style={{fontSize:10,fontWeight:600,letterSpacing:"0.08em",color:"#9A9A9A",marginBottom:8,textTransform:"uppercase"}}>Botellas</div>
+          <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:3,fontSize:13,color:"#1A1A1A"}}>
+            <span style={{color:"#9A9A9A",fontSize:11}}>En cava</span>
+            <span style={{fontWeight:500}}>{enCavaCount}</span>
+          </div>
+          <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:6,fontSize:13,color:"#1A1A1A"}}>
+            <span style={{color:"#9A9A9A",fontSize:11}}>En caja</span>
+            <span style={{fontWeight:500}}>{enCaja}</span>
+          </div>
+          <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",borderTop:"1px solid #F0F0F0",paddingTop:6}}>
+            <span style={{fontSize:11,color:"#6B6B6B",fontWeight:500}}>Total</span>
+            <div style={{display:"flex",gap:8,alignItems:"baseline"}}>
+              <span style={{fontSize:18,fontWeight:300,color:"#1A1A1A",lineHeight:1}}>{db.wines.length}</span>
+              <span style={{fontSize:11,color:"#6B6B6B"}}>{Math.round(ocupacion/totalPos*100)}%</span>
+            </div>
+          </div>
+        </div>
         {[
-          {l:"EN CAVA",v:db.wines.length,sub:"Ocupación",pct:Math.round(ocupacion/totalPos*100)+"%"},
           {l:"ETIQUETAS",v:new Set(db.wines.map(w=>w.nombre+w.bodega)).size,sub:`${paises.length} países`},
           {l:"CONSUMIDAS",v:db.consumos.length,sub:"historial completo"},
           {l:"VALOR ESTIM.",v:stats.totalValor>0?`$${Math.round(stats.totalValor).toLocaleString("es-AR")}`:"—",sub:"suma de precios",txt:true},

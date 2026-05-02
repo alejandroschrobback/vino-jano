@@ -93,7 +93,7 @@ const TYPE_BG = {
 };
 
 const STORAGE_KEY = "cava_anita_jano_v1";  // mantengo la misma key, así migra del v1
-const APIKEY_STORAGE = "cava_anthropic_apikey";
+const APIKEY_STORAGE = "cava_gemini_apikey";
 const GIST_TOKEN_KEY = "cava_gist_token";
 const GIST_ID_KEY = "cava_gist_id";
 const GIST_LAST_SYNC_KEY = "cava_gist_last_sync";
@@ -175,21 +175,28 @@ function parseCSV(text) {
   });
 }
 
-// ── Llamadas a Claude API
-async function callClaude({ apiKey, model="claude-sonnet-4-5", maxTokens=1500, messages }) {
-  const resp = await fetch("https://api.anthropic.com/v1/messages", {
+// ── Llamadas a Gemini API (Google AI Studio, free tier)
+// Acepta: prompt (texto) y opcionalmente images: [{ data:<base64>, type:"image/jpeg" }]
+async function callGemini({ apiKey, model="gemini-2.5-flash", maxTokens=2048, prompt, images=[] }) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const parts = [];
+  if (Array.isArray(images)) {
+    images.forEach(img => parts.push({ inline_data: { mime_type: img.type || "image/jpeg", data: img.data } }));
+  }
+  parts.push({ text: prompt });
+  const resp = await fetch(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true"
-    },
-    body: JSON.stringify({ model, max_tokens: maxTokens, messages })
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts }],
+      generationConfig: { maxOutputTokens: maxTokens, temperature: 0.4 }
+    })
   });
   const data = await resp.json();
   if (!resp.ok) throw new Error(data?.error?.message || `HTTP ${resp.status}`);
-  return data.content?.map(c => c.text||"").join("") || "";
+  const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text||"").filter(Boolean).join("") || "";
+  if (!text) throw new Error("Gemini devolvió respuesta vacía");
+  return text;
 }
 
 function App() {
@@ -216,6 +223,8 @@ function App() {
   const [sugerResult, setSugerResult] = useState(null);
   const [confirmModal, setConfirmModal] = useState(null);
   const [scanError, setScanError] = useState("");
+  const [searchingInfo, setSearchingInfo] = useState(false);
+  const [searchInfoMsg, setSearchInfoMsg] = useState("");
   const [scanning, setScanning] = useState(false);
   const [scanImages, setScanImages] = useState([]);
   const [apiKey, setApiKey] = useState(() => localStorage.getItem(APIKEY_STORAGE) || "");
@@ -521,13 +530,11 @@ function App() {
     if (!apiKey) { setScanError("Falta configurar la API key en Configuración."); return; }
     setScanning(true); setScanError("");
     try {
-      const text = await callClaude({
+      const text = await callGemini({
         apiKey,
-        maxTokens: 1000,
-        messages: [{ role:"user", content: [
-          ...scanImages.map(img => ({ type:"image", source:{ type:"base64", media_type:img.type, data:img.data } })),
-          { type:"text", text:`Analizá estas ${scanImages.length} foto(s) de la misma etiqueta de vino y devolvé SOLO un JSON (sin markdown):\n{"nombre":"","bodega":"","anada":"","tipo":"Tinto","cepa":"","pais":"","provincia":"","alcohol":"","maridaje":""}` }
-        ]}]
+        maxTokens: 1500,
+        images: scanImages,
+        prompt: `Analizá estas ${scanImages.length} foto(s) de la misma etiqueta de vino y devolvé SOLO un JSON (sin markdown, sin texto fuera):\n{"nombre":"","bodega":"","anada":"","tipo":"Tinto","cepa":"","pais":"","provincia":"","alcohol":"","maridaje":""}\n\nNotas: "tipo" debe ser uno de: Tinto, Blanco, Rosado, Naranjo, Espumante, Champagne, Prosecco, Cava. "alcohol" como número (ej "13.5"). Si un dato no se ve, dejalo "".`
       });
       const m = text.match(/\{[\s\S]*\}/);
       if (!m) { setScanError("Respuesta sin JSON: " + text.slice(0,200)); setScanning(false); return; }
@@ -551,6 +558,57 @@ function App() {
     setScanning(false);
   };
 
+  // ── Buscar info de un vino por nombre+bodega (Gemini) ──
+  const searchWineInfo = async () => {
+    if (!apiKey) { setSearchInfoMsg("⚠ Falta la API key de Gemini (Configuración)."); return; }
+    const nombre = (form.nombre||"").trim();
+    const bodega = (form.bodega||"").trim();
+    if (!nombre && !bodega) { setSearchInfoMsg("⚠ Cargá al menos el nombre o la bodega antes."); return; }
+    setSearchingInfo(true); setSearchInfoMsg("");
+    try {
+      const ident = [nombre, bodega, form.anada].filter(Boolean).join(" · ");
+      const prompt = `Sos sommelier experto. Buscá información del vino "${ident}" y devolvé EXCLUSIVAMENTE un JSON válido (sin markdown, sin texto fuera). Completá lo que sepas con razonable certeza, dejá "" lo que no sepas:
+
+{
+  "nombre":"<nombre/etiqueta limpio>",
+  "bodega":"<bodega/winery>",
+  "anada":"<año si lo identificás, sino vacío>",
+  "tipo":"<uno de: Tinto, Blanco, Rosado, Naranjo, Espumante, Champagne, Prosecco, Cava, Crémant, Pétillant Naturel, Dulce Natural, Cosecha Tardía, Sauternes, Icewine, Passito, Vin Santo, Jerez / Sherry, Oporto, Madeira, Marsala, Vermut, Sidra, Sake, Hidromiel, Otro>",
+  "cepa":"<varietal o blend, ej Malbec o 'Cab Sauv 60% / Merlot 40%'>",
+  "pais":"<país de origen>",
+  "provincia":"<región/provincia/DOC>",
+  "alcohol":"<grado alcohólico, número decimal ej 13.5>",
+  "tempServicio":"<rango ej 16-18°C>",
+  "guarda":"<ej 5-10 años o 'Para tomar joven'>",
+  "maridaje":"<3-5 maridajes separados por coma>",
+  "ojo":"<descripción visual breve>",
+  "nariz":"<aromas principales>",
+  "boca":"<cuerpo, taninos, acidez>",
+  "final":"<persistencia, postgusto>",
+  "notas":"<dato curioso, premio, terroir, en 1-2 oraciones>"
+}
+
+Si no estás seguro de un campo NO INVENTES, dejalo "". Si el vino no existe o no encontrás info confiable devolvé el JSON con todos los campos vacíos excepto "notas":"No encontré información confiable de este vino.".`;
+      const text = await callGemini({ apiKey, maxTokens: 1500, prompt });
+      const cleaned = text.replace(/```json|```/g, "").trim();
+      const m = cleaned.match(/\{[\s\S]*\}/);
+      if (!m) throw new Error("Respuesta sin JSON: " + cleaned.slice(0,200));
+      const parsed = JSON.parse(m[0]);
+      // Solo sobreescribo campos vacíos en el form (no piso lo que ya cargaste a mano)
+      setForm(f => {
+        const next = { ...f };
+        ["nombre","bodega","anada","tipo","cepa","pais","provincia","alcohol","tempServicio","guarda","maridaje","ojo","nariz","boca","final","notas"].forEach(k => {
+          if (parsed[k] && (!f[k] || String(f[k]).trim()==="")) next[k] = parsed[k];
+        });
+        return next;
+      });
+      setSearchInfoMsg("✓ Info traída. Revisá los campos antes de guardar.");
+    } catch (err) {
+      setSearchInfoMsg("✕ Error: " + (err?.message || String(err)));
+    }
+    setSearchingInfo(false);
+  };
+
   // ── Sugerencias ──
   const buscarSugerencias = async () => {
     if (!sugerContext.trim()) return;
@@ -570,10 +628,10 @@ function App() {
         `${i+1}. ${w.nombre} | ${w.bodega} | ${w.tipo} | ${w.cepa||"—"} | ${w.pais||"—"}${w.provincia?`/${w.provincia}`:""} | añada ${w.anada||"s/d"} | ${w._count} botella${w._count>1?"s":""}${w.maridaje?` | maridaje: ${w.maridaje}`:""}`
       ).join("\n");
       const prompt = `Sos sommelier ayudándome a elegir un vino de mi cava.\n\nMI INVENTARIO (${uniques.length} etiquetas únicas, ${db.wines.length} botellas):\n${wineList}\n\nOCASIÓN / COMIDA: ${sugerContext}\n\nDevolvé EXCLUSIVAMENTE un JSON válido sin texto fuera, sin bloque de código markdown:\n{"ocasion":"resumen breve","sugerencias":[{"numero":1,"nombre":"<copiar exacto del inventario>","bodega":"<copiar exacto>","tipo":"<copiar>","razon":"1-2 oraciones de por qué este vino para esta ocasión"}],"nota":"opcional, si querés agregar un consejo"}\n\nElegí entre 4 y 8 opciones variadas y relevantes. No te limites a lo más caro o lo mejor; mostrá variedad para que pueda decidir. IMPORTANTE: copiá nombre y bodega EXACTAMENTE como aparecen en el inventario para poder linkearlos.`;
-      const text = await callClaude({
+      const text = await callGemini({
         apiKey,
-        maxTokens: 2000,
-        messages: [{ role:"user", content: prompt }]
+        maxTokens: 2500,
+        prompt
       });
       const cleaned = text.replace(/```json|```/g,"").trim();
       const m = cleaned.match(/\{[\s\S]*\}/);
@@ -809,7 +867,7 @@ function App() {
     return sinUb || group.bottles[0];
   };
   const openFormEdit = (w) => { setForm({...emptyForm(), ...w}); setFormErr(""); setModal({mode:"form",editId:w.id}); };
-  const closeModal = () => { setModal(null); setScanImages([]); setScanError(""); };
+  const closeModal = () => { setModal(null); setScanImages([]); setScanError(""); setSearchInfoMsg(""); };
 
   const saveWine = async () => {
     if (!form.nombre.trim() || !form.bodega.trim()) { setFormErr("Nombre y Bodega son obligatorios."); return; }
@@ -1388,20 +1446,20 @@ function App() {
 
             {/* API KEY */}
             <div style={{background:"#fff",border:"1px solid #E5E5E5",borderRadius:10,padding:"18px 20px"}}>
-              <div style={{fontWeight:600,fontSize:14,marginBottom:4}}>API key de Claude</div>
-              <div style={{fontSize:12,color:"#aaa",marginBottom:12}}>Necesaria para escanear etiquetas con foto y para sugerencias. Se guarda en localStorage de este navegador.</div>
+              <div style={{fontWeight:600,fontSize:14,marginBottom:4}}>API key de Gemini (gratis)</div>
+              <div style={{fontSize:12,color:"#aaa",marginBottom:12}}>Necesaria para escanear etiquetas con foto, buscar info de un vino y sugerencias. Se guarda en localStorage de este navegador.</div>
               {apiKey ? (
                 <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-                  <code style={{background:"#F7F7F7",padding:"6px 10px",borderRadius:6,fontSize:12,color:"#1A1A1A"}}>● Configurada (sk-...{apiKey.slice(-4)})</code>
+                  <code style={{background:"#F7F7F7",padding:"6px 10px",borderRadius:6,fontSize:12,color:"#1A1A1A"}}>● Configurada (AIza…{apiKey.slice(-4)})</code>
                   <button onClick={removeApiKey} style={{padding:"6px 12px",background:"#fff",color:"#1A1A1A",border:"1px solid #E5E5E5",borderRadius:6,fontSize:12,cursor:"pointer"}}>Quitar</button>
                 </div>
               ) : (
                 <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                  <input type="password" value={apiKeyDraft} onChange={e=>setApiKeyDraft(e.target.value)} placeholder="sk-ant-api03-..." style={{flex:1,minWidth:240,padding:"8px 10px",border:"1px solid #E5E5E5",borderRadius:6,fontSize:13,outline:"none",fontFamily:"monospace"}}/>
+                  <input type="password" value={apiKeyDraft} onChange={e=>setApiKeyDraft(e.target.value)} placeholder="AIzaSy..." style={{flex:1,minWidth:240,padding:"8px 10px",border:"1px solid #E5E5E5",borderRadius:6,fontSize:13,outline:"none",fontFamily:"monospace"}}/>
                   <button onClick={saveApiKey} disabled={!apiKeyDraft.trim()} style={{padding:"8px 16px",background:apiKeyDraft.trim()?"#1A1A1A":"#ccc",color:"#fff",border:"none",borderRadius:6,fontSize:13,cursor:apiKeyDraft.trim()?"pointer":"not-allowed"}}>Guardar</button>
                 </div>
               )}
-              <div style={{fontSize:11,color:"#bbb",marginTop:8}}>Conseguila en <span style={{color:"#888"}}>console.anthropic.com → API keys</span>.</div>
+              <div style={{fontSize:11,color:"#bbb",marginTop:8}}>Conseguila gratis en <span style={{color:"#888"}}>aistudio.google.com/apikey</span> (1.500 requests/día sin costo).</div>
             </div>
 
             {/* SYNC GIST — rediseñado */}
@@ -1601,6 +1659,9 @@ function App() {
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:scanImages.length>0?12:0}}>
                     <div style={{fontWeight:600,fontSize:14}}>{modal.editId?"Editar vino":"Agregar vino"}</div>
                     <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                      <button onClick={searchWineInfo} disabled={searchingInfo||(!form.nombre.trim()&&!form.bodega.trim())} title={!apiKey?"Configurá la API key de Gemini":"Buscar ficha técnica con IA"} style={{padding:"6px 12px",background:"#F7F7F7",border:"1px solid #E5E5E5",borderRadius:6,fontSize:12,color:"#555",cursor:(searchingInfo||(!form.nombre.trim()&&!form.bodega.trim()))?"not-allowed":"pointer",display:"flex",alignItems:"center",gap:5,opacity:(searchingInfo||(!form.nombre.trim()&&!form.bodega.trim()))?0.55:1}}>
+                        ✨ {searchingInfo?"Buscando…":"Buscar info"}
+                      </button>
                       <label style={{padding:"6px 12px",background:"#F7F7F7",border:"1px solid #E5E5E5",borderRadius:6,fontSize:12,cursor:"pointer",color:"#555",display:"flex",alignItems:"center",gap:5}}>
                         📷 {scanImages.length>0?`+foto (${scanImages.length})`:"Escanear etiqueta"}
                         <input type="file" accept="image/*" capture="environment" multiple onChange={onScanFilesChange} style={{display:"none"}}/>
@@ -1624,6 +1685,7 @@ function App() {
                     </div>
                   )}
                   {scanError&&<div style={{marginTop:8,padding:"7px 10px",background:"#FAFAFA",border:"1px solid #E5E5E5",borderRadius:5,fontSize:11,color:"#1A1A1A"}}>{scanError}</div>}
+                  {searchInfoMsg&&<div style={{marginTop:8,padding:"7px 10px",background:searchInfoMsg.startsWith("✓")?"#F4F8F0":(searchInfoMsg.startsWith("✕")?"#FBF0F0":"#FAFAFA"),border:"1px solid #E5E5E5",borderRadius:5,fontSize:11,color:"#1A1A1A"}}>{searchInfoMsg}</div>}
                 </div>
                 <div style={{padding:"14px 20px"}}>
                   <SectionLabel>Datos básicos</SectionLabel>

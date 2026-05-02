@@ -1061,18 +1061,27 @@ function App() {
               {(()=>{
                 const cajaWines = db.wines.filter(w => w.cava==="caja");
                 if(!cajaWines.length) return null;
+                // Agrupar por nombre+bodega+añada para que las botellas iguales aparezcan en una sola fila con xN
+                const groups = {};
+                cajaWines.forEach(w => {
+                  const key = `${(w.nombre||"").toLowerCase().trim()}|${(w.bodega||"").toLowerCase().trim()}|${w.anada||""}`;
+                  if(!groups[key]) groups[key] = { rep: w, count: 0 };
+                  groups[key].count++;
+                });
+                const grouped = Object.values(groups);
                 return (
                   <div style={{marginTop:12,paddingTop:10,borderTop:"1px solid #f0f0f0"}}>
-                    <div style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#1A1A1A",textTransform:"uppercase",marginBottom:6}}>📦 En caja — {cajaWines.length}</div>
+                    <div style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#1A1A1A",textTransform:"uppercase",marginBottom:6}}>📦 En caja — {cajaWines.length}{grouped.length<cajaWines.length?` (${grouped.length} etiquetas)`:""}</div>
                     <div className="scroll" style={{maxHeight:160,overflowY:"auto",display:"flex",flexDirection:"column",gap:2}}>
-                      {cajaWines.map(w=>(
-                        <div key={w.id} onClick={()=>openDetail(w)}
+                      {grouped.map(g=>(
+                        <div key={g.rep.id} onClick={()=>openDetail(g.rep)}
                              style={{display:"flex",alignItems:"center",gap:6,padding:"4px 7px",borderRadius:4,cursor:"pointer",background:"#FAF5F4",border:"1px solid #E8D6D2"}}
                              onMouseEnter={e=>e.currentTarget.style.background="#F2E5E2"}
                              onMouseLeave={e=>e.currentTarget.style.background="#FAF5F4"}>
-                          <div style={{width:7,height:7,borderRadius:2,background:TYPE_COLOR[w.tipo]||"#ccc",flexShrink:0}}/>
-                          <div style={{fontSize:10.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{w.nombre}</div>
-                          <div style={{fontSize:9,color:"#bbb",flexShrink:0}}>{w.anada||""}</div>
+                          <div style={{width:7,height:7,borderRadius:2,background:TYPE_COLOR[g.rep.tipo]||"#ccc",flexShrink:0}}/>
+                          <div style={{fontSize:10.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{g.rep.nombre}</div>
+                          {g.count>1 && <div style={{fontSize:9,fontWeight:600,color:"#7B1F2A",background:"#F8E5E8",padding:"1px 5px",borderRadius:3,flexShrink:0,letterSpacing:"0.02em"}}>x{g.count}</div>}
+                          <div style={{fontSize:9,color:"#bbb",flexShrink:0}}>{g.rep.anada||""}</div>
                         </div>
                       ))}
                     </div>

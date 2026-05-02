@@ -75,20 +75,21 @@ const TIPOS = [
 
 const PAISES = ["Afganistán","Albania","Alemania","Andorra","Angola","Arabia Saudita","Argelia","Argentina","Armenia","Australia","Austria","Azerbaiyán","Bahamas","Bangladesh","Bélgica","Belice","Bolivia","Bosnia y Herzegovina","Brasil","Bulgaria","Canadá","Chile","China","Chipre","Colombia","Corea del Norte","Corea del Sur","Costa Rica","Croacia","Cuba","Dinamarca","Ecuador","Egipto","El Salvador","Emiratos Árabes Unidos","Eslovaquia","Eslovenia","España","Estados Unidos","Estonia","Etiopía","Filipinas","Finlandia","Francia","Georgia","Ghana","Grecia","Guatemala","Honduras","Hungría","India","Indonesia","Irak","Irán","Irlanda","Islandia","Israel","Italia","Jamaica","Japón","Jordania","Kazajistán","Kenia","Kuwait","Laos","Letonia","Líbano","Libia","Lituania","Luxemburgo","Madagascar","Malasia","Malta","Marruecos","México","Moldavia","Mónaco","Mongolia","Montenegro","Mozambique","Myanmar","Nepal","Nicaragua","Nigeria","Noruega","Nueva Zelanda","Omán","Países Bajos","Pakistán","Panamá","Paraguay","Perú","Polonia","Portugal","Reino Unido","República Checa","República Dominicana","Rumanía","Rusia","Senegal","Serbia","Singapur","Siria","Sudáfrica","Sudán","Suecia","Suiza","Tailandia","Tanzania","Túnez","Turquía","Ucrania","Uruguay","Venezuela","Vietnam","Yemen","Zambia","Zimbabue"];
 
-// Paleta monocromática: tintos/oscuros = más oscuro, blancos/burbujas = más claro
+// Paleta tipo "color del vino" — cada estilo usa un tono que se parece al color real del vino en la copa.
+// TYPE_COLOR = tono saturado (borde de celda + texto del badge). TYPE_BG = tinte muy claro del mismo tono (relleno).
 const TYPE_COLOR = {
-  "Tinto":"#1A1A1A","Blanco":"#9A9A9A","Rosado":"#6B6B6B","Naranja":"#6B6B6B",
-  "Espumante":"#9A9A9A","Champagne":"#9A9A9A","Prosecco":"#9A9A9A","Cava":"#9A9A9A","Crémant":"#9A9A9A","Pétillant Naturel":"#9A9A9A",
-  "Dulce Natural":"#6B6B6B","Cosecha Tardía":"#6B6B6B","Sauternes":"#9A9A9A","Icewine":"#9A9A9A","Passito":"#4A4A4A","Vin Santo":"#4A4A4A",
-  "Jerez / Sherry":"#4A4A4A","Oporto":"#1A1A1A","Madeira":"#1A1A1A","Marsala":"#1A1A1A","Vermut":"#4A4A4A",
-  "Sidra":"#9A9A9A","Sake":"#9A9A9A","Hidromiel":"#9A9A9A","Otro":"#888"
+  "Tinto":"#7B1F2A","Blanco":"#B89E2F","Rosado":"#D45A7C","Naranja":"#D17A2D",
+  "Espumante":"#C9A227","Champagne":"#B8941F","Prosecco":"#A8B23C","Cava":"#C9A82D","Crémant":"#BFA22D","Pétillant Naturel":"#B8A845",
+  "Dulce Natural":"#A8731F","Cosecha Tardía":"#A8731F","Sauternes":"#B8821F","Icewine":"#C99227","Passito":"#7A4A1A","Vin Santo":"#7A4A1A",
+  "Jerez / Sherry":"#9C6A1F","Oporto":"#5C1A1B","Madeira":"#6F3A14","Marsala":"#7A2F1A","Vermut":"#8B4A2A",
+  "Sidra":"#C9A82D","Sake":"#B0AC8A","Hidromiel":"#C99227","Otro":"#888"
 };
 const TYPE_BG = {
-  "Tinto":"#F0F0F0","Blanco":"#FAFAFA","Rosado":"#F5F5F5","Naranja":"#F5F5F5",
-  "Espumante":"#FAFAFA","Champagne":"#FAFAFA","Prosecco":"#FAFAFA","Cava":"#FAFAFA","Crémant":"#FAFAFA","Pétillant Naturel":"#FAFAFA",
-  "Dulce Natural":"#F5F5F5","Cosecha Tardía":"#F5F5F5","Sauternes":"#FAFAFA","Icewine":"#FAFAFA","Passito":"#F0F0F0","Vin Santo":"#F0F0F0",
-  "Jerez / Sherry":"#F0F0F0","Oporto":"#F0F0F0","Madeira":"#F0F0F0","Marsala":"#F0F0F0","Vermut":"#F0F0F0",
-  "Sidra":"#FAFAFA","Sake":"#FAFAFA","Hidromiel":"#FAFAFA","Otro":"#F5F5F5"
+  "Tinto":"#F8E5E8","Blanco":"#FBF5DC","Rosado":"#FCE8EE","Naranja":"#FBEBDA",
+  "Espumante":"#FBF3D2","Champagne":"#FBF1CA","Prosecco":"#F8FAD8","Cava":"#FBF3CC","Crémant":"#FBF4D0","Pétillant Naturel":"#F9F6CE",
+  "Dulce Natural":"#F8EDD2","Cosecha Tardía":"#F8EDD2","Sauternes":"#F8EBC8","Icewine":"#FBEDC8","Passito":"#F2E2C8","Vin Santo":"#F2E2C8",
+  "Jerez / Sherry":"#F4E5C2","Oporto":"#F5D6D8","Madeira":"#F0E0CC","Marsala":"#F4DBCC","Vermut":"#F4DCC8",
+  "Sidra":"#FBF3CC","Sake":"#F2F1E5","Hidromiel":"#FBEDC8","Otro":"#F2F2F2"
 };
 
 const STORAGE_KEY = "cava_anita_jano_v1";  // mantengo la misma key, así migra del v1

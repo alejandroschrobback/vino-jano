@@ -233,6 +233,10 @@ function App() {
   const [scanError, setScanError] = useState("");
   const [searchingInfo, setSearchingInfo] = useState(false);
   const [searchInfoMsg, setSearchInfoMsg] = useState("");
+  const [enrichingAll, setEnrichingAll] = useState(false);
+  const [enrichProgress, setEnrichProgress] = useState({ done: 0, total: 0, current: "", ok: 0, fail: 0 });
+  const [enrichLog, setEnrichLog] = useState([]);
+  const enrichStopRef = useRef(false);
   const [scanning, setScanning] = useState(false);
   const [scanImages, setScanImages] = useState([]);
   const [apiKey, setApiKey] = useState(() => localStorage.getItem(APIKEY_STORAGE) || "");
@@ -639,6 +643,99 @@ Si no estás seguro de un campo NO INVENTES, dejalo "". Si el vino no existe o n
       setSearchInfoMsg("✕ Error: " + (err?.message || String(err)));
     }
     setSearchingInfo(false);
+  };
+
+  // ── Helper: pide a Gemini la ficha completa de un vino dado nombre+bodega+añada (+ campos ya conocidos como contexto) ──
+  const fetchWineFichaFromGemini = async (w) => {
+    const ident = [w.nombre, w.bodega, w.anada].filter(Boolean).join(" · ");
+    const known = [];
+    if (w.tipo) known.push(`Tipo: ${w.tipo}`);
+    if (w.cepa) known.push(`Cepa: ${w.cepa}`);
+    if (w.pais) known.push(`País: ${w.pais}`);
+    if (w.provincia) known.push(`Región: ${w.provincia}`);
+    if (w.alcohol) known.push(`Alcohol: ${w.alcohol}%`);
+    const knownTxt = known.length ? `\n\nDatos que ya tengo (úsalos para identificar mejor el vino):\n${known.join("\n")}` : "";
+    const prompt = `Sos sommelier experto. Buscá información del vino "${ident}" y devolvé EXCLUSIVAMENTE un JSON válido con esta estructura:${knownTxt}
+
+{
+  "nombre":"<nombre/etiqueta limpio>",
+  "bodega":"<bodega/winery>",
+  "anada":"<año si lo identificás>",
+  "tipo":"<uno de: Tinto, Blanco, Rosado, Naranjo, Espumante, Champagne, Prosecco, Cava, Crémant, Pétillant Naturel, Dulce Natural, Cosecha Tardía, Sauternes, Icewine, Passito, Vin Santo, Jerez / Sherry, Oporto, Madeira, Marsala, Vermut, Sidra, Sake, Hidromiel, Otro>",
+  "cepa":"<varietal o blend>",
+  "pais":"<país>",
+  "provincia":"<región/DOC>",
+  "alcohol":"<grado, número decimal>",
+  "tempServicio":"<rango ej 16-18°C>",
+  "guarda":"<ej '5-10 años'>",
+  "maridaje":"<3-5 maridajes separados por coma>",
+  "ojo":"<descripción visual breve>",
+  "nariz":"<aromas principales>",
+  "boca":"<cuerpo, taninos, acidez>",
+  "final":"<persistencia>",
+  "notas":"<dato curioso, terroir o premio en 1-2 oraciones>"
+}
+
+Reglas: completá lo que sepas con razonable certeza. NO INVENTES. Si el vino no existe o no encontrás info confiable, devolvé el JSON con todos los campos vacíos excepto "notas":"No encontré información confiable de este vino.".`;
+    const text = await callGemini({ apiKey, maxTokens: 2048, json: true, prompt });
+    const m = text.match(/\{[\s\S]*\}/);
+    if (!m) throw new Error("Respuesta sin JSON");
+    return JSON.parse(m[0]);
+  };
+
+  // ── Bulk: enriquecer todos los vinos del inventario que tengan ficha incompleta ──
+  const wineNeedsEnrichment = (w) => {
+    const empty = (v) => !v || String(v).trim() === "";
+    return empty(w.cepa) || empty(w.alcohol) || empty(w.tempServicio) || empty(w.guarda)
+        || empty(w.maridaje) || empty(w.ojo) || empty(w.nariz) || empty(w.boca) || empty(w.final);
+  };
+  const stopEnrichAll = () => { enrichStopRef.current = true; };
+  const enrichAllWines = () => {
+    if (!apiKey) { alert("Falta API key de Gemini en Configuración."); return; }
+    const candidates = db.wines.filter(wineNeedsEnrichment);
+    if (!candidates.length) { alert("Todos los vinos ya tienen la ficha completa."); return; }
+    const minutos = Math.ceil(candidates.length * 5 / 60);
+    askConfirm(
+      `Esto va a procesar ${candidates.length} vino${candidates.length>1?"s":""} con Gemini (delay de ~5 segundos entre cada uno para respetar el límite de 15 req/min del free tier). Toma aproximadamente ${minutos} minuto${minutos>1?"s":""}. ¿Continuar?`,
+      async () => {
+        enrichStopRef.current = false;
+        setEnrichingAll(true);
+        setEnrichLog([]);
+        setEnrichProgress({ done: 0, total: candidates.length, current: "", ok: 0, fail: 0 });
+        let ok = 0, fail = 0;
+        let workingDb = db;
+        for (let i = 0; i < candidates.length; i++) {
+          if (enrichStopRef.current) {
+            setEnrichLog(l => [`⏹ Detenido por el usuario en ${i}/${candidates.length}`, ...l]);
+            break;
+          }
+          const w = candidates[i];
+          setEnrichProgress({ done: i, total: candidates.length, current: `${w.nombre}${w.anada?" "+w.anada:""}`, ok, fail });
+          try {
+            const parsed = await fetchWineFichaFromGemini(w);
+            // Solo rellenar campos vacíos del vino existente
+            const updated = { ...w };
+            ["tipo","cepa","pais","provincia","alcohol","tempServicio","guarda","maridaje","ojo","nariz","boca","final","notas"].forEach(k => {
+              if (parsed[k] && (!w[k] || String(w[k]).trim()==="")) updated[k] = parsed[k];
+            });
+            workingDb = { ...workingDb, wines: workingDb.wines.map(x => x.id === w.id ? updated : x) };
+            await persist(workingDb);
+            ok++;
+            setEnrichLog(l => [`✓ ${w.nombre}${w.anada?" "+w.anada:""}`, ...l].slice(0, 30));
+          } catch (err) {
+            fail++;
+            setEnrichLog(l => [`✕ ${w.nombre}${w.anada?" "+w.anada:""}: ${err.message||err}`, ...l].slice(0, 30));
+          }
+          setEnrichProgress({ done: i+1, total: candidates.length, current: "", ok, fail });
+          // Rate limit: 5s entre llamadas (free tier 15 RPM)
+          if (i < candidates.length - 1 && !enrichStopRef.current) {
+            await new Promise(r => setTimeout(r, 5000));
+          }
+        }
+        setEnrichingAll(false);
+        setEnrichLog(l => [`🎉 Terminado: ${ok} ok, ${fail} con error.`, ...l]);
+      }
+    );
   };
 
   // ── Sugerencias ──
@@ -1494,6 +1591,45 @@ Si no estás seguro de un campo NO INVENTES, dejalo "". Si el vino no existe o n
               )}
               <div style={{fontSize:11,color:"#bbb",marginTop:8}}>Conseguila gratis en <span style={{color:"#888"}}>aistudio.google.com/apikey</span> (1.500 requests/día sin costo).</div>
             </div>
+
+            {/* COMPLETAR FICHAS EN LOTE */}
+            {(() => {
+              const incompletos = db.wines.filter(wineNeedsEnrichment).length;
+              return (
+                <div style={{background:"#fff",border:"1px solid #E5E5E5",borderRadius:10,padding:"18px 20px"}}>
+                  <div style={{fontWeight:600,fontSize:14,marginBottom:4}}>✨ Completar fichas en lote</div>
+                  <div style={{fontSize:12,color:"#aaa",marginBottom:12,lineHeight:1.5}}>Le pide a Gemini que complete los datos faltantes (cepa, alcohol, temp servicio, guarda, maridaje, notas de cata) de los vinos que ya tenés cargados. Solo rellena campos vacíos — no pisa lo que ya escribiste a mano.</div>
+                  {!enrichingAll ? (
+                    <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                      <button onClick={enrichAllWines} disabled={!apiKey || incompletos===0} style={{padding:"8px 16px",background:(!apiKey||incompletos===0)?"#ccc":"#1A1A1A",color:"#fff",border:"none",borderRadius:6,fontSize:13,cursor:(!apiKey||incompletos===0)?"not-allowed":"pointer"}}>
+                        {incompletos===0 ? "✓ Todos completos" : `Procesar ${incompletos} vino${incompletos>1?"s":""} con ficha incompleta`}
+                      </button>
+                      {!apiKey && <span style={{fontSize:11,color:"#bbb"}}>Configurá la API key primero ↑</span>}
+                      {apiKey && incompletos>0 && <span style={{fontSize:11,color:"#bbb"}}>~{Math.ceil(incompletos*5/60)} min · 5s entre llamadas</span>}
+                    </div>
+                  ) : (
+                    <div>
+                      <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:10}}>
+                        <button onClick={stopEnrichAll} style={{padding:"7px 14px",background:"#fff",color:"#1A1A1A",border:"1px solid #E5E5E5",borderRadius:6,fontSize:12,cursor:"pointer"}}>⏹ Detener</button>
+                        <span style={{fontSize:12,color:"#1A1A1A",fontWeight:500}}>{enrichProgress.done} / {enrichProgress.total}</span>
+                        <span style={{fontSize:11,color:"#9A9A9A"}}>· {enrichProgress.ok} ok · {enrichProgress.fail} fail</span>
+                        {enrichProgress.current && <span style={{fontSize:11,color:"#666",fontStyle:"italic",marginLeft:"auto"}}>⏳ {enrichProgress.current}</span>}
+                      </div>
+                      <div style={{height:6,background:"#F0F0F0",borderRadius:3,overflow:"hidden"}}>
+                        <div style={{height:"100%",width:`${enrichProgress.total>0?(enrichProgress.done/enrichProgress.total*100):0}%`,background:"#1A1A1A",transition:"width 0.3s"}}></div>
+                      </div>
+                    </div>
+                  )}
+                  {enrichLog.length>0 && (
+                    <div style={{marginTop:12,maxHeight:180,overflowY:"auto",background:"#FAFAFA",border:"1px solid #F0F0F0",borderRadius:6,padding:"6px 10px",fontSize:11,fontFamily:"monospace",lineHeight:1.6}}>
+                      {enrichLog.map((line,i)=>(
+                        <div key={i} style={{color:line.startsWith("✓")?"#1A1A1A":(line.startsWith("✕")?"#7B1F2A":(line.startsWith("⏹")||line.startsWith("🎉")?"#666":"#9A9A9A")),wordBreak:"break-word"}}>{line}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* SYNC GIST — rediseñado */}
             <div style={{background:"#fff",border:"1px solid #E5E5E5",borderRadius:10,padding:"18px 20px"}}>

@@ -54,17 +54,18 @@
   .vj-cell-occupied-active { outline: 2px dashed #6B6B6B; outline-offset: -1px; opacity: 0.45; }
   .vj-cell-drop-over { background: #1A1A1A !important; outline: 2px solid #1A1A1A; }
   .vj-cell-drop-blocked { background: #E5E5E5 !important; outline: 2px solid #6B6B6B; }
-  /* Tablet/celular: achicar el padding lateral para aprovechar el ancho */
-  @media (max-width: 1024px) {
-    .vj-header { padding-left: 12px !important; padding-right: 12px !important; }
-    .vj-stats, .vj-tabs { padding-left: 12px !important; padding-right: 12px !important; }
-    .vj-main { padding-left: 10px !important; padding-right: 10px !important; padding-top: 14px !important; }
+  /* Tablet (incl. apaisada): achicar padding lateral para aprovechar el ancho */
+  @media (max-width: 1366px) {
+    .vj-header, .vj-stats, .vj-tabs { padding-left: 10px !important; padding-right: 10px !important; }
+    .vj-main { padding-left: 8px !important; padding-right: 8px !important; padding-top: 12px !important; }
     .vj-invgrid { gap: 8px !important; }
+    .vj-card { padding-left: 12px !important; padding-right: 12px !important; }
   }
-  @media (max-width: 640px) {
-    .vj-header { padding-left: 8px !important; padding-right: 8px !important; }
-    .vj-stats, .vj-tabs { padding-left: 8px !important; padding-right: 8px !important; }
-    .vj-main { padding-left: 6px !important; padding-right: 6px !important; }
+  /* Celular: aún más ajustado */
+  @media (max-width: 700px) {
+    .vj-header, .vj-stats, .vj-tabs { padding-left: 6px !important; padding-right: 6px !important; }
+    .vj-main { padding-left: 4px !important; padding-right: 4px !important; }
+    .vj-stats { gap: 6px !important; }
   }
 </style>
 </head>
@@ -1489,7 +1490,7 @@ Reglas:
     <div style={{minHeight:"100vh",background:"#FFFFFF",fontSize:14,color:"#1A1A1A"}}>
 
       {/* HEADER */}
-      <div className="vj-header" style={{background:"#fff",borderBottom:"1px solid #E5E5E5",padding:"14px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
+      <div className="vj-header" style={{background:"#fff",borderBottom:"1px solid #E5E5E5",padding:"14px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
         <div style={{display:"flex",alignItems:"center",gap:12}}>
           <div style={{width:32,height:32,borderRadius:7,background:"#1A1A1A",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>🍷</div>
           <div>
@@ -1501,7 +1502,7 @@ Reglas:
       </div>
 
       {/* STATS */}
-      <div className="vj-stats" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,padding:"14px 24px 0"}}>
+      <div className="vj-stats" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,padding:"14px 16px 0"}}>
         {/* Card especial: desglose Cava / Caja / Total */}
         <div style={{background:"#fff",border:"1px solid #E5E5E5",borderRadius:8,padding:"14px 16px"}}>
           <div style={{fontSize:10,fontWeight:600,letterSpacing:"0.08em",color:"#9A9A9A",marginBottom:8,textTransform:"uppercase"}}>Botellas</div>
@@ -1543,7 +1544,7 @@ Reglas:
       </div>
 
       {/* TABS */}
-      <div className="vj-tabs" style={{padding:"14px 24px 0",display:"flex",gap:4,flexWrap:"wrap"}}>
+      <div className="vj-tabs" style={{padding:"14px 16px 0",display:"flex",gap:4,flexWrap:"wrap"}}>
         {[["inventario","≡ Inventario"],["sugerencias","✦ Sugerencias"],["historial","↺ Historial"],["config","⚙ Configuración"]].map(([id,lbl])=>(
           <button key={id} onClick={()=>setTab(id)} style={{padding:"6px 14px",border:"1px solid",borderColor:tab===id?"#1A1A1A":"#E5E5E5",borderRadius:6,background:tab===id?"#1A1A1A":"#fff",color:tab===id?"#fff":"#6B6B6B",fontSize:12,fontWeight:tab===id?500:400,cursor:"pointer"}}>
             {lbl}
@@ -1551,7 +1552,7 @@ Reglas:
         ))}
       </div>
 
-      <div className="vj-main" style={{padding:"22px 28px 40px"}}>
+      <div className="vj-main" style={{padding:"18px 16px 40px"}}>
         {(dropMsg || dragWineId) && (
           <div style={{position:"fixed",top:18,left:"50%",transform:"translateX(-50%)",zIndex:9000,padding:"10px 22px",borderRadius:999,fontSize:12.5,fontWeight:500,letterSpacing:"0.02em",boxShadow:"0 6px 20px rgba(0,0,0,0.12)",background:dragWineId?"#1A1A1A":(dropMsg.startsWith("✓")?"#1A1A1A":"#FFFFFF"),color:dragWineId?"#FFFFFF":(dropMsg.startsWith("✓")?"#FFFFFF":"#1A1A1A"),border:"1px solid #1A1A1A"}}>
             {dragWineId ? "Arrastrá la botella sobre una celda vacía del mapa para asignar posición · Soltá fuera para cancelar" : dropMsg}
@@ -1562,7 +1563,7 @@ Reglas:
         {tab==="inventario"&&(
           <div className="vj-invgrid" style={{display:"grid",gridTemplateColumns:"290px 1fr",gap:12}}>
             {/* MAPA */}
-            <div style={{background:"#fff",border:"1px solid #E5E5E5",borderRadius:10,padding:"14px 12px",alignSelf:"start"}}>
+            <div className="vj-card" style={{background:"#fff",border:"1px solid #E5E5E5",borderRadius:10,padding:"14px 12px",alignSelf:"start"}}>
               {renderCavaMap(CAVA_GRANDE)}
               <div style={{borderTop:"1px solid #ECECEC",marginBottom:14}}/>
               {renderCavaMap(CAVA_VONDOM)}

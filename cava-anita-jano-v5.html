@@ -94,6 +94,11 @@ const TYPE_BG = {
 
 const STORAGE_KEY = "cava_anita_jano_v1";  // mantengo la misma key, así migra del v1
 const APIKEY_STORAGE = "cava_gemini_apikey";
+const ANTHROPIC_KEY_STORAGE = "cava_anthropic_apikey";
+const AI_MODEL_STORAGE = "cava_ai_model";
+const CLAUDE_MODELS = { sonnet: "claude-sonnet-4-6", haiku: "claude-haiku-4-5-20251001" };
+const DEFAULT_CLAUDE_MODEL = CLAUDE_MODELS.sonnet;
+const ENRICH_RETRY_DAYS = 30; // reintentar vinos "sin data" recién después de N días
 const GIST_TOKEN_KEY = "cava_gist_token";
 const GIST_ID_KEY = "cava_gist_id";
 const GIST_LAST_SYNC_KEY = "cava_gist_last_sync";
@@ -310,6 +315,31 @@ async function callGemini({ apiKey, model="gemini-2.5-flash", maxTokens=4096, pr
   return text;
 }
 
+// ── Llamada a la API de Anthropic (Claude), directo desde el navegador ──
+// Requiere el header anthropic-dangerous-direct-browser-access para evitar el bloqueo CORS.
+async function callAnthropic({ apiKey, model = DEFAULT_CLAUDE_MODEL, maxTokens = 2048, prompt }) {
+  const resp = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: maxTokens,
+      messages: [{ role: "user", content: prompt }]
+    })
+  });
+  const data = await resp.json();
+  if (!resp.ok) throw new Error(data?.error?.message || `HTTP ${resp.status}`);
+  if (data?.stop_reason === "max_tokens") throw new Error("Respuesta truncada (subí maxTokens).");
+  const text = Array.isArray(data?.content) ? data.content.map(b => b?.text || "").filter(Boolean).join("") : "";
+  if (!text) throw new Error("Claude devolvió respuesta vacía");
+  return text;
+}
+
 function App() {
   const [db, setDb] = useState(null);
   const [tab, setTab] = useState("inventario");
@@ -344,6 +374,10 @@ function App() {
   const [scanImages, setScanImages] = useState([]);
   const [apiKey, setApiKey] = useState(() => localStorage.getItem(APIKEY_STORAGE) || "");
   const [apiKeyDraft, setApiKeyDraft] = useState("");
+  const [anthropicKey, setAnthropicKey] = useState(() => localStorage.getItem(ANTHROPIC_KEY_STORAGE) || "");
+  const [anthropicKeyDraft, setAnthropicKeyDraft] = useState("");
+  const [aiModel, setAiModel] = useState(() => localStorage.getItem(AI_MODEL_STORAGE) || DEFAULT_CLAUDE_MODEL);
+  const hasAI = !!(anthropicKey || apiKey); // hay al menos un proveedor de IA configurado
   const [gistToken, setGistToken] = useState(() => localStorage.getItem(GIST_TOKEN_KEY) || "");
   const [gistTokenDraft, setGistTokenDraft] = useState("");
   const [gistId, setGistId] = useState(() => localStorage.getItem(GIST_ID_KEY) || "");
@@ -446,6 +480,41 @@ function App() {
   const removeApiKey = () => {
     localStorage.removeItem(APIKEY_STORAGE);
     setApiKey("");
+  };
+  const saveAnthropicKey = () => {
+    const k = anthropicKeyDraft.trim();
+    if (!k) return;
+    localStorage.setItem(ANTHROPIC_KEY_STORAGE, k);
+    setAnthropicKey(k); setAnthropicKeyDraft("");
+  };
+  const removeAnthropicKey = () => {
+    localStorage.removeItem(ANTHROPIC_KEY_STORAGE);
+    setAnthropicKey("");
+  };
+  const changeAiModel = (m) => {
+    localStorage.setItem(AI_MODEL_STORAGE, m);
+    setAiModel(m);
+  };
+
+  // ── Proveedor de IA unificado: Anthropic (Claude) principal, Gemini fallback ──
+  // Devuelve el objeto JSON parseado. Si Anthropic falla o vuelve vacío, reintenta con Gemini.
+  const aiJSON = async (prompt, maxTokens = 2048) => {
+    let lastErr;
+    if (anthropicKey) {
+      try {
+        const text = await callAnthropic({ apiKey: anthropicKey, model: aiModel, maxTokens, prompt });
+        const m = text.replace(/```json|```/g, "").match(/\{[\s\S]*\}/);
+        if (!m) throw new Error("Respuesta sin JSON");
+        return JSON.parse(m[0]);
+      } catch (e) { lastErr = e; } // cae al fallback
+    }
+    if (apiKey) {
+      const text = await callGemini({ apiKey, maxTokens, json: true, prompt });
+      const m = text.replace(/```json|```/g, "").match(/\{[\s\S]*\}/);
+      if (!m) throw new Error("Respuesta sin JSON");
+      return JSON.parse(m[0]);
+    }
+    throw lastErr || new Error("No hay API key configurada (Anthropic o Gemini).");
   };
 
   // ── Gist sync ──
@@ -696,7 +765,7 @@ function App() {
   const removeImage = (i) => setScanImages(prev => prev.filter((_,idx) => idx !== i));
   const scanLabel = async () => {
     if (!scanImages.length) return;
-    if (!apiKey) { setScanError("Falta configurar la API key en Configuración."); return; }
+    if (!apiKey) { setScanError("El escaneo de fotos usa Gemini: configurá la API key de Gemini en Configuración."); return; }
     setScanning(true); setScanError("");
     try {
       const text = await callGemini({
@@ -753,9 +822,9 @@ Reglas:
     setScanning(false);
   };
 
-  // ── Buscar info de un vino por nombre+bodega (Gemini) ──
+  // ── Buscar info de un vino por nombre+bodega (Claude principal, Gemini fallback) ──
   const searchWineInfo = async () => {
-    if (!apiKey) { setSearchInfoMsg("⚠ Falta la API key de Gemini (Configuración)."); return; }
+    if (!hasAI) { setSearchInfoMsg("⚠ Falta configurar una API key (Anthropic o Gemini) en Configuración."); return; }
     const nombre = (form.nombre||"").trim();
     const bodega = (form.bodega||"").trim();
     if (!nombre && !bodega) { setSearchInfoMsg("⚠ Cargá al menos el nombre o la bodega antes."); return; }
@@ -787,11 +856,7 @@ Reglas:
 Reglas:
 - Para precio: estimá rango de mercado argentino actual en ARS si lo conocés. Si solo tenés referencia internacional usá USD. Si no estás seguro, dejá "".
 - Si no estás seguro de un campo NO INVENTES, dejalo "". Si el vino no existe o no encontrás info confiable devolvé el JSON con todos los campos vacíos excepto "notas":"No encontré información confiable de este vino.".`;
-      const text = await callGemini({ apiKey, maxTokens: 2048, json: true, prompt });
-      const cleaned = text.replace(/```json|```/g, "").trim();
-      const m = cleaned.match(/\{[\s\S]*\}/);
-      if (!m) throw new Error("Respuesta sin JSON: " + cleaned.slice(0,200));
-      const parsed = JSON.parse(m[0]);
+      const parsed = await aiJSON(prompt, 2048);
       // Solo sobreescribo campos vacíos en el form (no piso lo que ya cargaste a mano)
       setForm(f => {
         const next = { ...f };
@@ -807,8 +872,8 @@ Reglas:
     setSearchingInfo(false);
   };
 
-  // ── Helper: pide a Gemini la ficha completa de un vino dado nombre+bodega+añada (+ campos ya conocidos como contexto) ──
-  const fetchWineFichaFromGemini = async (w) => {
+  // ── Helper: pide la ficha completa de un vino (Claude principal, Gemini fallback) ──
+  const fetchWineFicha = async (w) => {
     const ident = [w.nombre, w.bodega, w.anada].filter(Boolean).join(" · ");
     const known = [];
     if (w.tipo) known.push(`Tipo: ${w.tipo}`);
@@ -842,10 +907,7 @@ Reglas:
 Reglas:
 - Para precio: estimá rango de mercado argentino actual en ARS si lo conocés. Si solo tenés referencia internacional usá USD. Si no estás seguro, dejá "".
 - Completá lo que sepas con razonable certeza. NO INVENTES. Si el vino no existe o no encontrás info confiable, devolvé el JSON con todos los campos vacíos excepto "notas":"No encontré información confiable de este vino.".`;
-    const text = await callGemini({ apiKey, maxTokens: 2048, json: true, prompt });
-    const m = text.match(/\{[\s\S]*\}/);
-    if (!m) throw new Error("Respuesta sin JSON");
-    return JSON.parse(m[0]);
+    return await aiJSON(prompt, 2048);
   };
 
   // ── Bulk: enriquecer todos los vinos del inventario que tengan ficha incompleta ──
@@ -855,58 +917,101 @@ Reglas:
         || empty(w.maridaje) || empty(w.precio) || empty(w.ojo) || empty(w.nariz) || empty(w.boca) || empty(w.final);
   };
   const stopEnrichAll = () => { enrichStopRef.current = true; };
-  const enrichAllWines = () => {
-    if (!apiKey) { alert("Falta API key de Gemini en Configuración."); return; }
-    const candidates = db.wines.filter(wineNeedsEnrichment);
-    if (!candidates.length) { alert("Todos los vinos ya tienen la ficha completa."); return; }
-    const minutos = Math.ceil(candidates.length * 5 / 60);
-    askConfirm(
-      `Esto va a procesar ${candidates.length} vino${candidates.length>1?"s":""} con Gemini (delay de ~5 segundos entre cada uno para respetar el límite de 15 req/min del free tier). Toma aproximadamente ${minutos} minuto${minutos>1?"s":""}. ¿Continuar?`,
-      async () => {
-        enrichStopRef.current = false;
-        setEnrichingAll(true);
-        setEnrichLog([]);
-        setEnrichProgress({ done: 0, total: candidates.length, current: "", ok: 0, fail: 0 });
-        let ok = 0, fail = 0;
-        let workingDb = db;
-        for (let i = 0; i < candidates.length; i++) {
-          if (enrichStopRef.current) {
-            setEnrichLog(l => [`⏹ Detenido por el usuario en ${i}/${candidates.length}`, ...l]);
-            break;
-          }
-          const w = candidates[i];
-          setEnrichProgress({ done: i, total: candidates.length, current: `${w.nombre}${w.anada?" "+w.anada:""}`, ok, fail });
-          try {
-            const parsed = await fetchWineFichaFromGemini(w);
-            // Solo rellenar campos vacíos del vino existente
-            const updated = { ...w };
-            ["tipo","cepa","pais","provincia","alcohol","tempServicio","guarda","maridaje","precio","ojo","nariz","boca","final","notas"].forEach(k => {
-              if (parsed[k] && (!w[k] || String(w[k]).trim()==="")) updated[k] = parsed[k];
-            });
-            workingDb = { ...workingDb, wines: workingDb.wines.map(x => x.id === w.id ? updated : x) };
-            await persist(workingDb);
-            ok++;
-            setEnrichLog(l => [`✓ ${w.nombre}${w.anada?" "+w.anada:""}`, ...l].slice(0, 30));
-          } catch (err) {
-            fail++;
-            setEnrichLog(l => [`✕ ${w.nombre}${w.anada?" "+w.anada:""}: ${err.message||err}`, ...l].slice(0, 30));
-          }
-          setEnrichProgress({ done: i+1, total: candidates.length, current: "", ok, fail });
-          // Rate limit: 5s entre llamadas (free tier 15 RPM)
-          if (i < candidates.length - 1 && !enrichStopRef.current) {
-            await new Promise(r => setTimeout(r, 5000));
-          }
-        }
-        setEnrichingAll(false);
-        setEnrichLog(l => [`🎉 Terminado: ${ok} ok, ${fail} con error.`, ...l]);
+  // ¿Ya se intentó este vino sin éxito hace poco? (para no malgastar quota reprocesándolo)
+  const enrichRecentlyFailed = (w) => {
+    if (w.enrichStatus !== "empty") return false;
+    if (!w.enrichLast) return false;
+    const days = (Date.now() - new Date(w.enrichLast).getTime()) / (1000*60*60*24);
+    return days < ENRICH_RETRY_DAYS;
+  };
+  // Vinos a procesar en una corrida normal: incompletos que NO fallaron hace poco.
+  // Orden: primero los nunca intentados, después por fecha de último intento (más viejo primero).
+  const enrichCandidates = () => db.wines
+    .filter(w => wineNeedsEnrichment(w) && !enrichRecentlyFailed(w))
+    .sort((a,b) => {
+      const la = a.enrichLast ? new Date(a.enrichLast).getTime() : 0;
+      const lb = b.enrichLast ? new Date(b.enrichLast).getTime() : 0;
+      return la - lb; // 0 (nunca intentado) primero
+    });
+  // Vinos marcados "sin data" (para el botón de reintento manual, ignora el corte de 30 días)
+  const notFoundWines = () => db.wines.filter(w => w.enrichStatus === "empty" && wineNeedsEnrichment(w));
+
+  // Núcleo compartido del enriquecimiento en lote
+  const runEnrich = async (candidates) => {
+    enrichStopRef.current = false;
+    setEnrichingAll(true);
+    setEnrichLog([]);
+    setEnrichProgress({ done: 0, total: candidates.length, current: "", ok: 0, fail: 0 });
+    const dataFields = ["tipo","cepa","pais","provincia","alcohol","tempServicio","guarda","maridaje","precio","ojo","nariz","boca","final"];
+    const delayMs = anthropicKey ? 1200 : 5000; // Claude (pago) tolera más req/min; Gemini free necesita ~5s
+    let ok = 0, fail = 0, sinData = 0;
+    for (let i = 0; i < candidates.length; i++) {
+      if (enrichStopRef.current) {
+        setEnrichLog(l => [`⏹ Detenido por el usuario en ${i}/${candidates.length}`, ...l]);
+        break;
       }
+      const w = candidates[i];
+      setEnrichProgress({ done: i, total: candidates.length, current: `${w.nombre}${w.anada?" "+w.anada:""}`, ok, fail });
+      try {
+        const parsed = await fetchWineFicha(w);
+        const updated = { ...w };
+        let filled = false;
+        [...dataFields, "notas"].forEach(k => {
+          if (parsed[k] && (!w[k] || String(w[k]).trim()==="")) { updated[k] = parsed[k]; if (k !== "notas") filled = true; }
+        });
+        updated.enrichLast = new Date().toISOString();
+        if (filled) {
+          updated.enrichStatus = "ok";
+          ok++;
+          setEnrichLog(l => [`✓ ${w.nombre}${w.anada?" "+w.anada:""}`, ...l].slice(0, 30));
+        } else {
+          updated.enrichStatus = "empty";
+          updated.enrichAttempts = (w.enrichAttempts || 0) + 1;
+          sinData++;
+          setEnrichLog(l => [`○ ${w.nombre}${w.anada?" "+w.anada:""}: sin data (se reintenta en ${ENRICH_RETRY_DAYS}d)`, ...l].slice(0, 30));
+        }
+        const base = dbRef.current || db;
+        await persist({ ...base, wines: base.wines.map(x => x.id === w.id ? updated : x) });
+      } catch (err) {
+        fail++;
+        setEnrichLog(l => [`✕ ${w.nombre}${w.anada?" "+w.anada:""}: ${err.message||err}`, ...l].slice(0, 30));
+      }
+      setEnrichProgress({ done: i+1, total: candidates.length, current: "", ok, fail });
+      if (i < candidates.length - 1 && !enrichStopRef.current) {
+        await new Promise(r => setTimeout(r, delayMs));
+      }
+    }
+    setEnrichingAll(false);
+    setEnrichLog(l => [`🎉 Terminado: ${ok} completados · ${sinData} sin data · ${fail} con error.`, ...l]);
+  };
+
+  const enrichAllWines = () => {
+    if (!hasAI) { alert("Falta configurar una API key (Anthropic o Gemini) en Configuración."); return; }
+    const candidates = enrichCandidates();
+    if (!candidates.length) { alert("No hay vinos pendientes (los que no se encontraron se reintentan después de " + ENRICH_RETRY_DAYS + " días, o usá «Reintentar no encontrados»)."); return; }
+    const provider = anthropicKey ? "Claude" : "Gemini";
+    const segs = anthropicKey ? 1.2 : 5;
+    const minutos = Math.ceil(candidates.length * segs / 60);
+    askConfirm(
+      `Voy a procesar ${candidates.length} vino${candidates.length>1?"s":""} con ${provider} (primero los nuevos; salteo los que ya dieron «sin data» hace menos de ${ENRICH_RETRY_DAYS} días). ~${minutos} min. ¿Continuar?`,
+      () => runEnrich(candidates)
+    );
+  };
+  const retryNotFound = () => {
+    if (!hasAI) { alert("Falta configurar una API key (Anthropic o Gemini) en Configuración."); return; }
+    const candidates = notFoundWines();
+    if (!candidates.length) { alert("No hay vinos marcados como «sin data»."); return; }
+    const provider = anthropicKey ? "Claude" : "Gemini";
+    askConfirm(
+      `Reintentar ${candidates.length} vino${candidates.length>1?"s":""} que antes no se encontraron, con ${provider}. ¿Continuar?`,
+      () => runEnrich(candidates)
     );
   };
 
   // ── Sugerencias ──
   const buscarSugerencias = async () => {
     if (!sugerContext.trim()) return;
-    if (!apiKey) { alert("Falta API key. Andá a Configuración."); return; }
+    if (!hasAI) { alert("Falta configurar una API key (Anthropic o Gemini). Andá a Configuración."); return; }
     if (db.wines.length === 0) { alert("Agregá vinos primero."); return; }
     setSugerLoading(true); setSugerResult(null);
     try {
@@ -922,16 +1027,7 @@ Reglas:
         `${i+1}. ${w.nombre} | ${w.bodega} | ${w.tipo} | ${w.cepa||"—"} | ${w.pais||"—"}${w.provincia?`/${w.provincia}`:""} | añada ${w.anada||"s/d"} | ${w._count} botella${w._count>1?"s":""}${w.maridaje?` | maridaje: ${w.maridaje}`:""}`
       ).join("\n");
       const prompt = `Sos sommelier ayudándome a elegir un vino de mi cava.\n\nMI INVENTARIO (${uniques.length} etiquetas únicas, ${db.wines.length} botellas):\n${wineList}\n\nOCASIÓN / COMIDA: ${sugerContext}\n\nDevolvé EXCLUSIVAMENTE un JSON válido sin texto fuera, sin bloque de código markdown:\n{"ocasion":"resumen breve","sugerencias":[{"numero":1,"nombre":"<copiar exacto del inventario>","bodega":"<copiar exacto>","tipo":"<copiar>","razon":"1-2 oraciones de por qué este vino para esta ocasión"}],"nota":"opcional, si querés agregar un consejo"}\n\nElegí entre 4 y 8 opciones variadas y relevantes. No te limites a lo más caro o lo mejor; mostrá variedad para que pueda decidir. IMPORTANTE: copiá nombre y bodega EXACTAMENTE como aparecen en el inventario para poder linkearlos.`;
-      const text = await callGemini({
-        apiKey,
-        maxTokens: 6144,
-        json: true,
-        prompt
-      });
-      const cleaned = text.replace(/```json|```/g,"").trim();
-      const m = cleaned.match(/\{[\s\S]*\}/);
-      if (!m) throw new Error("Respuesta sin JSON: " + cleaned.slice(0,200));
-      setSugerResult(JSON.parse(m[0]));
+      setSugerResult(await aiJSON(prompt, 6144));
     } catch (err) {
       alert("No pude obtener sugerencias: " + (err?.message || err));
     }
@@ -1280,7 +1376,7 @@ Reglas:
           <div style={{width:32,height:32,borderRadius:7,background:"#1A1A1A",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>🍷</div>
           <div>
             <div style={{fontWeight:600,fontSize:15,lineHeight:1,color:"#1A1A1A",letterSpacing:"-0.005em"}}>CAVA Anita y Jano</div>
-            <div style={{fontSize:11,color:"#9A9A9A",marginTop:3}}>{db.wines.length} botellas · {db.consumos.length} consumidas{apiKey?" · IA activa":""}</div>
+            <div style={{fontSize:11,color:"#9A9A9A",marginTop:3}}>{db.wines.length} botellas · {db.consumos.length} consumidas{hasAI?" · IA activa":""}</div>
           </div>
         </div>
         <span style={{fontSize:11,color:saving?"#9A9A9A":"#1A1A1A"}}>{saving?"Guardando…":"● Guardado"}</span>
@@ -1694,10 +1790,10 @@ Reglas:
           <div style={{maxWidth:720}}>
             <div style={{background:"#fff",border:"1px solid #E5E5E5",borderRadius:10,padding:"20px 22px",marginBottom:14}}>
               <div style={{fontWeight:600,fontSize:14,marginBottom:4}}>¿Para qué ocasión buscás un vino?</div>
-              <div style={{fontSize:12,color:"#aaa",marginBottom:14}}>{apiKey?"Contame sobre la comida, el momento o la reunión. Voy a filtrar tu stock y mostrarte opciones.":"⚠ Configurá la API key primero (tab Configuración)."}</div>
+              <div style={{fontSize:12,color:"#aaa",marginBottom:14}}>{hasAI?"Contame sobre la comida, el momento o la reunión. Voy a filtrar tu stock y mostrarte opciones.":"⚠ Configurá una API key primero (tab Configuración)."}</div>
               <textarea value={sugerContext} onChange={e=>setSugerContext(e.target.value)} placeholder="Ej: Asado de costilla con amigos. O: Cena romántica con mariscos. O: Aperitivo liviano una tarde de verano." rows={3} style={{width:"100%",padding:"10px 12px",border:"1px solid #E5E5E5",borderRadius:7,fontSize:13,outline:"none",resize:"vertical",fontFamily:"inherit",boxSizing:"border-box",marginBottom:12}}/>
-              <button disabled={sugerLoading||!sugerContext.trim()||!apiKey} onClick={buscarSugerencias}
-                style={{padding:"9px 22px",background:(sugerLoading||!sugerContext.trim()||!apiKey)?"#ccc":"#1A1A1A",color:"#fff",border:"none",borderRadius:7,fontSize:13,cursor:(sugerLoading||!sugerContext.trim()||!apiKey)?"not-allowed":"pointer",fontWeight:500}}>
+              <button disabled={sugerLoading||!sugerContext.trim()||!hasAI} onClick={buscarSugerencias}
+                style={{padding:"9px 22px",background:(sugerLoading||!sugerContext.trim()||!hasAI)?"#ccc":"#1A1A1A",color:"#fff",border:"none",borderRadius:7,fontSize:13,cursor:(sugerLoading||!sugerContext.trim()||!hasAI)?"not-allowed":"pointer",fontWeight:500}}>
                 {sugerLoading?"⏳ Buscando opciones…":"Buscar opciones en mi cava"}
               </button>
             </div>
@@ -1741,10 +1837,35 @@ Reglas:
         {tab==="config"&&(
           <div style={{maxWidth:720,display:"flex",flexDirection:"column",gap:14}}>
 
-            {/* API KEY */}
+            {/* API KEY ANTHROPIC (principal) */}
             <div style={{background:"#fff",border:"1px solid #E5E5E5",borderRadius:10,padding:"18px 20px"}}>
-              <div style={{fontWeight:600,fontSize:14,marginBottom:4}}>API key de Gemini (gratis)</div>
-              <div style={{fontSize:12,color:"#aaa",marginBottom:12}}>Necesaria para escanear etiquetas con foto, buscar info de un vino y sugerencias. Se guarda en localStorage de este navegador.</div>
+              <div style={{fontWeight:600,fontSize:14,marginBottom:4}}>API key de Anthropic (Claude) · principal</div>
+              <div style={{fontSize:12,color:"#aaa",marginBottom:12}}>Proveedor principal para fichas y sugerencias. Se guarda en localStorage de este navegador. La conseguís en <span style={{color:"#888"}}>console.anthropic.com</span> (empieza con <code>sk-ant-</code>).</div>
+              {anthropicKey ? (
+                <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                  <code style={{background:"#F7F7F7",padding:"6px 10px",borderRadius:6,fontSize:12,color:"#1A1A1A"}}>● Configurada (…{anthropicKey.slice(-4)})</code>
+                  <button onClick={removeAnthropicKey} style={{padding:"6px 12px",background:"#fff",color:"#1A1A1A",border:"1px solid #E5E5E5",borderRadius:6,fontSize:12,cursor:"pointer"}}>Quitar</button>
+                </div>
+              ) : (
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  <input type="password" value={anthropicKeyDraft} onChange={e=>setAnthropicKeyDraft(e.target.value)} placeholder="sk-ant-..." style={{flex:1,minWidth:240,padding:"8px 10px",border:"1px solid #E5E5E5",borderRadius:6,fontSize:13,outline:"none",fontFamily:"monospace"}}/>
+                  <button onClick={saveAnthropicKey} disabled={!anthropicKeyDraft.trim()} style={{padding:"8px 16px",background:anthropicKeyDraft.trim()?"#1A1A1A":"#ccc",color:"#fff",border:"none",borderRadius:6,fontSize:13,cursor:anthropicKeyDraft.trim()?"pointer":"not-allowed"}}>Guardar</button>
+                </div>
+              )}
+              <div style={{marginTop:12,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                <span style={{fontSize:12,color:"#666"}}>Modelo:</span>
+                <select value={aiModel} onChange={e=>changeAiModel(e.target.value)} style={{padding:"6px 10px",border:"1px solid #E5E5E5",borderRadius:6,fontSize:12,background:"#fff",cursor:"pointer",fontFamily:"inherit"}}>
+                  <option value={CLAUDE_MODELS.sonnet}>Claude Sonnet (mejor calidad)</option>
+                  <option value={CLAUDE_MODELS.haiku}>Claude Haiku (más barato)</option>
+                </select>
+                <span style={{fontSize:11,color:"#bbb"}}>Sonnet ≈ 3× el costo de Haiku, mejor en vinos de nicho.</span>
+              </div>
+            </div>
+
+            {/* API KEY GEMINI (fallback) */}
+            <div style={{background:"#fff",border:"1px solid #E5E5E5",borderRadius:10,padding:"18px 20px"}}>
+              <div style={{fontWeight:600,fontSize:14,marginBottom:4}}>API key de Gemini (gratis) · fallback</div>
+              <div style={{fontSize:12,color:"#aaa",marginBottom:12}}>Respaldo gratis: si Claude falla o no está configurado, se usa Gemini. También se usa para escanear etiquetas con foto. Se guarda en localStorage de este navegador.</div>
               {apiKey ? (
                 <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
                   <code style={{background:"#F7F7F7",padding:"6px 10px",borderRadius:6,fontSize:12,color:"#1A1A1A"}}>● Configurada (AIza…{apiKey.slice(-4)})</code>
@@ -1761,18 +1882,21 @@ Reglas:
 
             {/* COMPLETAR FICHAS EN LOTE */}
             {(() => {
+              const pendientes = enrichCandidates().length;   // nuevos + reintentos vencidos
+              const sinData = notFoundWines().length;          // marcados "sin data"
               const incompletos = db.wines.filter(wineNeedsEnrichment).length;
               return (
                 <div style={{background:"#fff",border:"1px solid #E5E5E5",borderRadius:10,padding:"18px 20px"}}>
                   <div style={{fontWeight:600,fontSize:14,marginBottom:4}}>✨ Completar fichas en lote</div>
-                  <div style={{fontSize:12,color:"#aaa",marginBottom:12,lineHeight:1.5}}>Le pide a Gemini que complete los datos faltantes (cepa, alcohol, temp servicio, guarda, maridaje, notas de cata) de los vinos que ya tenés cargados. Solo rellena campos vacíos — no pisa lo que ya escribiste a mano.</div>
+                  <div style={{fontSize:12,color:"#aaa",marginBottom:12,lineHeight:1.5}}>Completa con IA los datos faltantes (cepa, alcohol, temp servicio, guarda, maridaje, notas de cata) de los vinos cargados. Solo rellena campos vacíos — no pisa lo que escribiste a mano. Procesa primero los nuevos y saltea los que ya dieron «sin data» (se reintentan a los {ENRICH_RETRY_DAYS} días).</div>
                   {!enrichingAll ? (
                     <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-                      <button onClick={enrichAllWines} disabled={!apiKey || incompletos===0} style={{padding:"8px 16px",background:(!apiKey||incompletos===0)?"#ccc":"#1A1A1A",color:"#fff",border:"none",borderRadius:6,fontSize:13,cursor:(!apiKey||incompletos===0)?"not-allowed":"pointer"}}>
-                        {incompletos===0 ? "✓ Todos completos" : `Procesar ${incompletos} vino${incompletos>1?"s":""} con ficha incompleta`}
+                      <button onClick={enrichAllWines} disabled={!hasAI || pendientes===0} style={{padding:"8px 16px",background:(!hasAI||pendientes===0)?"#ccc":"#1A1A1A",color:"#fff",border:"none",borderRadius:6,fontSize:13,cursor:(!hasAI||pendientes===0)?"not-allowed":"pointer"}}>
+                        {pendientes===0 ? (incompletos===0 ? "✓ Todos completos" : "✓ Sin pendientes ahora") : `Procesar ${pendientes} vino${pendientes>1?"s":""} pendiente${pendientes>1?"s":""}`}
                       </button>
-                      {!apiKey && <span style={{fontSize:11,color:"#bbb"}}>Configurá la API key primero ↑</span>}
-                      {apiKey && incompletos>0 && <span style={{fontSize:11,color:"#bbb"}}>~{Math.ceil(incompletos*5/60)} min · 5s entre llamadas</span>}
+                      {sinData>0 && <button onClick={retryNotFound} disabled={!hasAI} style={{padding:"8px 14px",background:"#fff",color:hasAI?"#666":"#ccc",border:"1px solid #E5E5E5",borderRadius:6,fontSize:12,cursor:hasAI?"pointer":"not-allowed"}}>↻ Reintentar no encontrados ({sinData})</button>}
+                      {!hasAI && <span style={{fontSize:11,color:"#bbb"}}>Configurá una API key primero ↑</span>}
+                      {hasAI && pendientes>0 && <span style={{fontSize:11,color:"#bbb"}}>~{Math.ceil(pendientes*(anthropicKey?1.2:5)/60)} min{!anthropicKey?" · 5s entre llamadas":""}</span>}
                     </div>
                   ) : (
                     <div>
@@ -1995,7 +2119,7 @@ Reglas:
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:scanImages.length>0?12:0}}>
                     <div style={{fontWeight:600,fontSize:14}}>{modal.editId?"Editar vino":"Agregar vino"}</div>
                     <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                      <button onClick={searchWineInfo} disabled={searchingInfo||(!form.nombre.trim()&&!form.bodega.trim())} title={!apiKey?"Configurá la API key de Gemini":"Buscar ficha técnica con IA"} style={{padding:"6px 12px",background:"#F7F7F7",border:"1px solid #E5E5E5",borderRadius:6,fontSize:12,color:"#555",cursor:(searchingInfo||(!form.nombre.trim()&&!form.bodega.trim()))?"not-allowed":"pointer",display:"flex",alignItems:"center",gap:5,opacity:(searchingInfo||(!form.nombre.trim()&&!form.bodega.trim()))?0.55:1}}>
+                      <button onClick={searchWineInfo} disabled={searchingInfo||(!form.nombre.trim()&&!form.bodega.trim())} title={!hasAI?"Configurá una API key (Anthropic o Gemini)":"Buscar ficha técnica con IA"} style={{padding:"6px 12px",background:"#F7F7F7",border:"1px solid #E5E5E5",borderRadius:6,fontSize:12,color:"#555",cursor:(searchingInfo||(!form.nombre.trim()&&!form.bodega.trim()))?"not-allowed":"pointer",display:"flex",alignItems:"center",gap:5,opacity:(searchingInfo||(!form.nombre.trim()&&!form.bodega.trim()))?0.55:1}}>
                         ✨ {searchingInfo?"Buscando…":"Buscar info"}
                       </button>
                       <label style={{padding:"6px 12px",background:"#F7F7F7",border:"1px solid #E5E5E5",borderRadius:6,fontSize:12,cursor:"pointer",color:"#555",display:"flex",alignItems:"center",gap:5}}>

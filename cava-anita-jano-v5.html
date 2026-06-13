@@ -108,15 +108,118 @@ const GIST_POLL_MS = 30000;           // chequeá cambios remotos cada 30s
 // (seed Excel removido — el inventario inicial se baja del Gist en el bootstrap)
 const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2);
 
-// Migración liviana: arregla datos legacy. Por ahora solo "Naranja" → "Naranjo".
+const EPOCH = "1970-01-01T00:00:00.000Z";
+// updatedAt efectivo de un registro (con fallback determinístico para datos legacy)
+const recUpdatedAt = (r) => (r && (r.updatedAt || r.fechaIngreso || r.fecha)) || EPOCH;
+
+// Migración liviana: arregla datos legacy + backfill de updatedAt y tombstones.
 function migrateDb(db) {
-  if (db && Array.isArray(db.wines)) {
-    db.wines.forEach(w => { if (w && w.tipo === "Naranja") w.tipo = "Naranjo"; });
+  if (!db) return db;
+  if (Array.isArray(db.wines)) {
+    db.wines.forEach(w => {
+      if (!w) return;
+      if (w.tipo === "Naranja") w.tipo = "Naranjo";
+      if (!w.updatedAt) w.updatedAt = w.fechaIngreso || EPOCH; // determinístico entre dispositivos
+    });
   }
-  if (db && Array.isArray(db.consumos)) {
-    db.consumos.forEach(c => { if (c && c.tipo === "Naranja") c.tipo = "Naranjo"; });
+  if (Array.isArray(db.consumos)) {
+    db.consumos.forEach(c => {
+      if (!c) return;
+      if (c.tipo === "Naranja") c.tipo = "Naranjo";
+      if (!c.updatedAt) c.updatedAt = c.fecha || c.fechaIngreso || EPOCH;
+    });
   }
+  if (!Array.isArray(db.deleted)) db.deleted = []; // tombstones de borrados
   return db;
+}
+
+// ── Sincronización sin pérdida (CRDT-lite por id) ──
+// stampChanges: compara el db anterior con el nuevo, marca updatedAt en lo creado/editado
+// y registra tombstones (db.deleted) para lo borrado. Se corre dentro de persist().
+function stampChanges(oldDb, newDb) {
+  const now = new Date().toISOString();
+  const oldW = new Map((((oldDb && oldDb.wines)) || []).map(w => [w.id, w]));
+  const oldC = new Map((((oldDb && oldDb.consumos)) || []).map(c => [c.id, c]));
+  const sameRec = (x, y) => {
+    const kx = Object.keys(x).filter(k => k !== "updatedAt");
+    const ky = Object.keys(y).filter(k => k !== "updatedAt");
+    if (kx.length !== ky.length) return false;
+    return kx.every(k => JSON.stringify(x[k]) === JSON.stringify(y[k]));
+  };
+  const stampList = (list, oldMap) => (list || []).map(r => {
+    const o = oldMap.get(r.id);
+    if (o && sameRec(o, r)) return r.updatedAt ? r : { ...r, updatedAt: o.updatedAt || now };
+    return { ...r, updatedAt: now };
+  });
+  const wines = stampList(newDb.wines, oldW);
+  const consumos = stampList(newDb.consumos, oldC);
+  const newWIds = new Set(wines.map(w => w.id));
+  const newCIds = new Set(consumos.map(c => c.id));
+  const consumedWineIds = new Set(consumos.map(c => c.wineId).filter(Boolean));
+  const seed = Array.isArray(newDb.deleted) ? newDb.deleted : ((oldDb && oldDb.deleted) || []);
+  const delMap = new Map(seed.map(d => [d.id, d]));
+  // wines borrados de verdad (no los que pasaron a consumos)
+  (((oldDb && oldDb.wines)) || []).forEach(w => {
+    if (!newWIds.has(w.id) && !consumedWineIds.has(w.id)) delMap.set(w.id, { id: w.id, deletedAt: now });
+  });
+  // consumos borrados (eliminar del historial o restaurar al inventario)
+  (((oldDb && oldDb.consumos)) || []).forEach(c => {
+    if (!newCIds.has(c.id)) delMap.set(c.id, { id: c.id, deletedAt: now });
+  });
+  return { ...newDb, wines, consumos, deleted: [...delMap.values()] };
+}
+
+// mergeDb: fusiona dos copias por id. Gana el de updatedAt más reciente; aplica tombstones;
+// descarta vinos ya consumidos; orden determinístico para que el hash coincida entre dispositivos.
+function mergeDb(a, b) {
+  a = a || { wines: [], consumos: [], deleted: [] };
+  b = b || { wines: [], consumos: [], deleted: [] };
+  const delMap = new Map();
+  [...(a.deleted || []), ...(b.deleted || [])].forEach(d => {
+    if (!d || !d.id) return;
+    const prev = delMap.get(d.id);
+    if (!prev || (d.deletedAt || EPOCH) > (prev.deletedAt || EPOCH)) delMap.set(d.id, d);
+  });
+  const mergeList = (la, lb) => {
+    const m = new Map();
+    [...(la || []), ...(lb || [])].forEach(r => {
+      if (!r || !r.id) return;
+      const prev = m.get(r.id);
+      if (!prev || recUpdatedAt(r) >= recUpdatedAt(prev)) m.set(r.id, r);
+    });
+    return m;
+  };
+  const wines = mergeList(a.wines, b.wines);
+  const consumos = mergeList(a.consumos, b.consumos);
+  const applyTomb = (m) => {
+    for (const [id, rec] of [...m]) {
+      const t = delMap.get(id);
+      if (t && (t.deletedAt || EPOCH) >= recUpdatedAt(rec)) m.delete(id);
+    }
+  };
+  applyTomb(wines);
+  applyTomb(consumos);
+  // un vino consumido (referenciado por wineId en algún consumo) no debe seguir en stock,
+  // salvo que el vino haya sido editado/restaurado después del consumo
+  const consumoByWineId = new Map();
+  for (const c of consumos.values()) {
+    if (!c.wineId) continue;
+    const prev = consumoByWineId.get(c.wineId);
+    if (!prev || recUpdatedAt(c) >= recUpdatedAt(prev)) consumoByWineId.set(c.wineId, c);
+  }
+  for (const [id, w] of [...wines]) {
+    const c = consumoByWineId.get(id);
+    if (c && recUpdatedAt(c) >= recUpdatedAt(w)) wines.delete(id);
+  }
+  const wArr = [...wines.values()].sort((x, y) => (String(x.id) < String(y.id) ? -1 : String(x.id) > String(y.id) ? 1 : 0));
+  const cArr = [...consumos.values()].sort((x, y) => {
+    const fx = x.fecha || "", fy = y.fecha || "";
+    if (fx !== fy) return fx < fy ? 1 : -1; // fecha desc (más nuevo primero)
+    return String(x.id) < String(y.id) ? -1 : 1;
+  });
+  const cutoff = new Date(Date.now() - 365 * 24 * 3600 * 1000).toISOString();
+  const deleted = [...delMap.values()].filter(d => (d.deletedAt || EPOCH) >= cutoff);
+  return { ...a, ...b, wines: wArr, consumos: cArr, deleted };
 }
 
 async function loadDB() {
@@ -124,7 +227,7 @@ async function loadDB() {
     const r = localStorage.getItem(STORAGE_KEY);
     if (r) return migrateDb(JSON.parse(r));
   } catch (e) {}
-  return { wines: [], consumos: [] };
+  return { wines: [], consumos: [], deleted: [] };
 }
 async function saveDB(db) {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); } catch (e) {}
@@ -257,6 +360,7 @@ function App() {
   const lastHashRef = useRef(null);     // hash de lo último que subimos/bajamos
   const lastUpdatedAtRef = useRef(null);// updated_at del gist visto
   const skipNextPushRef = useRef(false);// flag tras un pull para no rebotar
+  const dbRef = useRef(null);           // espejo del db actual (para merge/stamping sin closures viejos)
   const initialPullDoneRef = useRef(false);// no pushear nada hasta haber pullado al menos una vez
   const [importMsg, setImportMsg] = useState("");
   const [expanded, setExpanded] = useState(() => new Set());
@@ -317,12 +421,17 @@ function App() {
     try { localStorage.removeItem(COL_WIDTHS_KEY); } catch (e) {}
   };
 
-  useEffect(() => { loadDB().then(setDb); }, []);
+  useEffect(() => { loadDB().then(d => { dbRef.current = d; setDb(d); }); }, []);
 
-  const persist = useCallback(async (newDb) => {
-    setDb(newDb);
+  // persist(newDb, {stamp}) — stamp=true (default) marca updatedAt/tombstones comparando con el db previo.
+  // Para datos que vienen de un pull/merge usar {stamp:false} (ya traen sus timestamps).
+  const persist = useCallback(async (newDb, opts) => {
+    const stamp = !opts || opts.stamp !== false;
+    const finalDb = stamp ? stampChanges(dbRef.current, newDb) : newDb;
+    dbRef.current = finalDb;
+    setDb(finalDb);
     setSaving(true);
-    await saveDB(newDb);
+    await saveDB(finalDb);
     setTimeout(() => setSaving(false), 800);
   }, []);
 
@@ -382,15 +491,40 @@ function App() {
   const doPush = async (silent = false) => {
     if (!gistToken) { if (!silent) setGistStatus("⚠ Falta el token."); return false; }
     if (!gistId)    { if (!silent) setGistStatus("⚠ Falta el Gist ID. Configuralo antes de subir."); return false; }
-    const snapshot = db;
+    let snapshot = dbRef.current || db;
     if (!snapshot) return false;
-    const hash = hashDb(snapshot);
-    if (hash === lastHashRef.current) return false; // sin cambios
     if (!silent) setGistStatus("⏳ Subiendo…");
     try {
+      // 1) Chequeo de frescura: ¿cambió el remoto desde la última vez que sincronizamos?
+      const meta = await fetch(`https://api.github.com/gists/${gistId}`, {
+        headers: { "Authorization": `Bearer ${gistToken}`, "Accept": "application/vnd.github+json" }
+      });
+      if (!meta.ok) { const t = await meta.text(); throw new Error(`HTTP ${meta.status}: ${t.slice(0,200)}`); }
+      const metaData = await meta.json();
+      if (lastUpdatedAtRef.current && metaData.updated_at !== lastUpdatedAtRef.current) {
+        // El remoto cambió: fusionar antes de subir, así nunca pisamos cambios de otro dispositivo
+        const f = metaData.files && metaData.files["cava.json"];
+        if (f) {
+          let content = f.content;
+          if (f.truncated && f.raw_url) {
+            const r2 = await fetch(f.raw_url, { headers: { "Authorization": `Bearer ${gistToken}` }});
+            content = await r2.text();
+          }
+          const remote = migrateDb(JSON.parse(content));
+          snapshot = mergeDb(snapshot, remote);
+          skipNextPushRef.current = true;
+          await persist(snapshot, { stamp: false });
+        }
+      }
+      const hash = hashDb(snapshot);
+      if (hash === lastHashRef.current) { // nada nuevo para subir tras la fusión
+        lastUpdatedAtRef.current = metaData.updated_at;
+        if (!silent) setGistStatus("✓ Sin cambios para subir.");
+        return false;
+      }
+      // 2) Subir el resultado (local + remoto fusionados)
       const payload = { files: { "cava.json": { content: JSON.stringify(snapshot, null, 2) } } };
-      const url = `https://api.github.com/gists/${gistId}`;
-      const r = await fetch(url, {
+      const r = await fetch(`https://api.github.com/gists/${gistId}`, {
         method: "PATCH",
         headers: { "Authorization": `Bearer ${gistToken}`, "Accept": "application/vnd.github+json", "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -410,8 +544,9 @@ function App() {
       return false;
     }
   };
-  // Núcleo del pull. Si onlyIfChanged=true, solo hace fetch full si updated_at difiere del último visto.
-  const doPull = async (onlyIfChanged = false, silent = false) => {
+  // Núcleo del pull. Si onlyIfChanged=true, solo procesa si updated_at difiere del último visto.
+  // Por defecto FUSIONA (no pisa cambios locales sin subir). force=true sobrescribe (botón manual).
+  const doPull = async (onlyIfChanged = false, silent = false, force = false) => {
     if (!gistToken || !gistId) return false;
     try {
       const r = await fetch(`https://api.github.com/gists/${gistId}`, {
@@ -422,7 +557,7 @@ function App() {
         throw new Error(`HTTP ${r.status}: ${t.slice(0,200)}`);
       }
       const data = await r.json();
-      if (onlyIfChanged && lastUpdatedAtRef.current && data.updated_at === lastUpdatedAtRef.current) {
+      if (!force && onlyIfChanged && lastUpdatedAtRef.current && data.updated_at === lastUpdatedAtRef.current) {
         return false; // remote sin cambios desde la última vez
       }
       const file = data.files && data.files["cava.json"];
@@ -436,19 +571,41 @@ function App() {
       if (!parsed.wines || !Array.isArray(parsed.wines)) throw new Error("JSON inválido (falta wines[]).");
       if (!parsed.consumos) parsed.consumos = [];
       migrateDb(parsed);
-      const newHash = hashDb(parsed);
-      if (newHash === lastHashRef.current) {
-        // El gist tiene exactamente lo mismo; no toco el estado local
+
+      if (force) {
+        // Sobrescritura dura: reemplaza el estado local con el del Gist
+        const newHash = hashDb(parsed);
+        skipNextPushRef.current = true;
+        await persist(parsed, { stamp: false });
+        lastHashRef.current = newHash;
         lastUpdatedAtRef.current = data.updated_at;
-        return false;
+        stampSync();
+        if (!silent) setGistStatus(`✓ Bajado (${parsed.wines.length} stock · ${parsed.consumos.length} hist).`);
+        return true;
       }
-      skipNextPushRef.current = true; // el persist que viene es por pull, no rebotar
-      await persist(parsed);
-      lastHashRef.current = newHash;
+
+      // Fusión no destructiva
+      const local = dbRef.current || { wines: [], consumos: [], deleted: [] };
+      const merged = mergeDb(local, parsed);
+      const remoteHash = hashDb(parsed);
+      const localHash = hashDb(local);
+      const mergedHash = hashDb(merged);
       lastUpdatedAtRef.current = data.updated_at;
-      stampSync();
-      if (!silent) setGistStatus(`✓ Bajado (${parsed.wines.length} stock · ${parsed.consumos.length} hist).`);
-      return true;
+
+      if (mergedHash !== localHash) {
+        skipNextPushRef.current = true; // el persist no debe rebotar como push
+        await persist(merged, { stamp: false });
+        if (!silent) setGistStatus(`✓ Bajado (${merged.wines.length} stock · ${merged.consumos.length} hist).`);
+      }
+      if (mergedHash !== remoteHash) {
+        // el local tenía cambios que el remoto no incluía → subir la fusión
+        lastHashRef.current = remoteHash; // asegura que doPush detecte la diferencia
+        await doPush(true);
+      } else {
+        lastHashRef.current = mergedHash;
+        stampSync();
+      }
+      return mergedHash !== localHash;
     } catch (e) {
       if (!silent) setGistStatus(`✕ Error bajando: ${e.message}`);
       return false;
@@ -468,7 +625,7 @@ function App() {
       setGistBusy(true);
       lastHashRef.current = null; // forzar replace
       lastUpdatedAtRef.current = null;
-      await doPull(false, false);
+      await doPull(false, false, true); // force = sobrescritura dura
       initialPullDoneRef.current = true; // habilitar push automático después del pull manual
       setGistBusy(false);
     }
@@ -819,7 +976,7 @@ Reglas:
       lastUpdatedAtRef.current = data.updated_at;
       initialPullDoneRef.current = true; // ya bajamos, habilitar push automático
       skipNextPushRef.current = true;     // el persist no debe rebotar como push
-      await persist(parsed);
+      await persist(parsed, { stamp: false });
       stampSync();
       setBootTokenDraft(""); setBootIdDraft("");
     } catch (e) {
@@ -844,8 +1001,10 @@ Reglas:
       try {
         const parsed = JSON.parse(r.result);
         if (!parsed.wines || !Array.isArray(parsed.wines)) throw new Error("formato inválido");
+        if (!parsed.consumos) parsed.consumos = [];
+        migrateDb(parsed);
         askConfirm(`¿Reemplazar el inventario actual con ${parsed.wines.length} vinos del archivo?`, async () => {
-          await persist(parsed);
+          await persist(parsed); // stamp: marca como cambio autoritativo (genera tombstones de lo removido)
           setImportMsg(`✓ Importados ${parsed.wines.length} vinos`);
           setTimeout(()=>setImportMsg(""), 4000);
         });

@@ -54,6 +54,18 @@
   .vj-cell-occupied-active { outline: 2px dashed #6B6B6B; outline-offset: -1px; opacity: 0.45; }
   .vj-cell-drop-over { background: #1A1A1A !important; outline: 2px solid #1A1A1A; }
   .vj-cell-drop-blocked { background: #E5E5E5 !important; outline: 2px solid #6B6B6B; }
+  /* Tablet/celular: achicar el padding lateral para aprovechar el ancho */
+  @media (max-width: 1024px) {
+    .vj-header { padding-left: 12px !important; padding-right: 12px !important; }
+    .vj-stats, .vj-tabs { padding-left: 12px !important; padding-right: 12px !important; }
+    .vj-main { padding-left: 10px !important; padding-right: 10px !important; padding-top: 14px !important; }
+    .vj-invgrid { gap: 8px !important; }
+  }
+  @media (max-width: 640px) {
+    .vj-header { padding-left: 8px !important; padding-right: 8px !important; }
+    .vj-stats, .vj-tabs { padding-left: 8px !important; padding-right: 8px !important; }
+    .vj-main { padding-left: 6px !important; padding-right: 6px !important; }
+  }
 </style>
 </head>
 <body>
@@ -424,10 +436,13 @@ function App() {
     } catch (e) { return [...DEFAULT_COL_WIDTHS]; }
   });
   const resizeRef = useRef(null); // { idx, startX, startW }
+  const evX = (e) => (e.touches && e.touches[0]) ? e.touches[0].clientX
+                   : (e.changedTouches && e.changedTouches[0]) ? e.changedTouches[0].clientX
+                   : e.clientX;
   const startColResize = (idx, e) => {
-    e.preventDefault();
+    if (e.cancelable) e.preventDefault();
     e.stopPropagation();
-    resizeRef.current = { idx, startX: e.clientX, startW: colWidths[idx] };
+    resizeRef.current = { idx, startX: evX(e), startW: colWidths[idx] };
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
   };
@@ -435,7 +450,8 @@ function App() {
     const onMove = (e) => {
       const r = resizeRef.current;
       if (!r) return;
-      const delta = e.clientX - r.startX;
+      if (e.cancelable) e.preventDefault(); // en touch evita el scroll de la página mientras se arrastra
+      const delta = evX(e) - r.startX;
       const newW = Math.max(MIN_COL_WIDTH, r.startW + delta);
       setColWidths(prev => {
         if (prev[r.idx] === newW) return prev;
@@ -454,9 +470,15 @@ function App() {
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
+    window.addEventListener("touchmove", onMove, { passive: false });
+    window.addEventListener("touchend", onUp);
+    window.addEventListener("touchcancel", onUp);
     return () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("touchmove", onMove);
+      window.removeEventListener("touchend", onUp);
+      window.removeEventListener("touchcancel", onUp);
     };
   }, []);
   const resetColWidths = () => {
@@ -1467,7 +1489,7 @@ Reglas:
     <div style={{minHeight:"100vh",background:"#FFFFFF",fontSize:14,color:"#1A1A1A"}}>
 
       {/* HEADER */}
-      <div style={{background:"#fff",borderBottom:"1px solid #E5E5E5",padding:"14px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
+      <div className="vj-header" style={{background:"#fff",borderBottom:"1px solid #E5E5E5",padding:"14px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
         <div style={{display:"flex",alignItems:"center",gap:12}}>
           <div style={{width:32,height:32,borderRadius:7,background:"#1A1A1A",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>🍷</div>
           <div>
@@ -1479,7 +1501,7 @@ Reglas:
       </div>
 
       {/* STATS */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,padding:"14px 24px 0"}}>
+      <div className="vj-stats" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,padding:"14px 24px 0"}}>
         {/* Card especial: desglose Cava / Caja / Total */}
         <div style={{background:"#fff",border:"1px solid #E5E5E5",borderRadius:8,padding:"14px 16px"}}>
           <div style={{fontSize:10,fontWeight:600,letterSpacing:"0.08em",color:"#9A9A9A",marginBottom:8,textTransform:"uppercase"}}>Botellas</div>
@@ -1521,7 +1543,7 @@ Reglas:
       </div>
 
       {/* TABS */}
-      <div style={{padding:"14px 24px 0",display:"flex",gap:4,flexWrap:"wrap"}}>
+      <div className="vj-tabs" style={{padding:"14px 24px 0",display:"flex",gap:4,flexWrap:"wrap"}}>
         {[["inventario","≡ Inventario"],["sugerencias","✦ Sugerencias"],["historial","↺ Historial"],["config","⚙ Configuración"]].map(([id,lbl])=>(
           <button key={id} onClick={()=>setTab(id)} style={{padding:"6px 14px",border:"1px solid",borderColor:tab===id?"#1A1A1A":"#E5E5E5",borderRadius:6,background:tab===id?"#1A1A1A":"#fff",color:tab===id?"#fff":"#6B6B6B",fontSize:12,fontWeight:tab===id?500:400,cursor:"pointer"}}>
             {lbl}
@@ -1529,7 +1551,7 @@ Reglas:
         ))}
       </div>
 
-      <div style={{padding:"22px 28px 40px"}}>
+      <div className="vj-main" style={{padding:"22px 28px 40px"}}>
         {(dropMsg || dragWineId) && (
           <div style={{position:"fixed",top:18,left:"50%",transform:"translateX(-50%)",zIndex:9000,padding:"10px 22px",borderRadius:999,fontSize:12.5,fontWeight:500,letterSpacing:"0.02em",boxShadow:"0 6px 20px rgba(0,0,0,0.12)",background:dragWineId?"#1A1A1A":(dropMsg.startsWith("✓")?"#1A1A1A":"#FFFFFF"),color:dragWineId?"#FFFFFF":(dropMsg.startsWith("✓")?"#FFFFFF":"#1A1A1A"),border:"1px solid #1A1A1A"}}>
             {dragWineId ? "Arrastrá la botella sobre una celda vacía del mapa para asignar posición · Soltá fuera para cancelar" : dropMsg}
@@ -1538,7 +1560,7 @@ Reglas:
 
         {/* ══ INVENTARIO ══ */}
         {tab==="inventario"&&(
-          <div style={{display:"grid",gridTemplateColumns:"290px 1fr",gap:12}}>
+          <div className="vj-invgrid" style={{display:"grid",gridTemplateColumns:"290px 1fr",gap:12}}>
             {/* MAPA */}
             <div style={{background:"#fff",border:"1px solid #E5E5E5",borderRadius:10,padding:"14px 12px",alignSelf:"start"}}>
               {renderCavaMap(CAVA_GRANDE)}
@@ -1697,12 +1719,13 @@ Reglas:
                             </div>
                             {!isLast && (
                               <div onMouseDown={(e)=>startColResize(i, e)}
+                                   onTouchStart={(e)=>startColResize(i, e)}
                                    onClick={e=>e.stopPropagation()}
                                    onDoubleClick={(e)=>{e.stopPropagation(); setColWidths(prev=>{const next=[...prev]; next[i]=DEFAULT_COL_WIDTHS[i]; try{localStorage.setItem(COL_WIDTHS_KEY,JSON.stringify(next));}catch(_){} return next;});}}
                                    title="Arrastrá para ajustar el ancho · doble clic para resetear esta columna"
-                                   style={{position:"absolute",top:-7,right:-7,bottom:-7,width:16,cursor:"col-resize",zIndex:5,display:"flex",alignItems:"center",justifyContent:"center"}}
-                                   onMouseEnter={e=>{const l=e.currentTarget.firstChild; l.style.background="#1A1A1A"; l.style.width="2px";}}
-                                   onMouseLeave={e=>{const l=e.currentTarget.firstChild; l.style.background="#D0D0D0"; l.style.width="2px";}}>
+                                   style={{position:"absolute",top:-7,right:-11,bottom:-7,width:24,cursor:"col-resize",zIndex:5,display:"flex",alignItems:"center",justifyContent:"center",touchAction:"none"}}
+                                   onMouseEnter={e=>{const l=e.currentTarget.firstChild; l.style.background="#1A1A1A";}}
+                                   onMouseLeave={e=>{const l=e.currentTarget.firstChild; l.style.background="#D0D0D0";}}>
                                 <div style={{width:"2px",height:"60%",background:"#D0D0D0",borderRadius:2,transition:"background 0.1s"}}/>
                               </div>
                             )}

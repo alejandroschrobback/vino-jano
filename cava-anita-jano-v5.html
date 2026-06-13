@@ -108,8 +108,8 @@ const GIST_LAST_SYNC_KEY = "cava_gist_last_sync";
 const GIST_AUTO_SYNC_KEY = "cava_gist_auto";
 const COL_WIDTHS_KEY = "cava_col_widths_v1";
 // Anchos por defecto (px) de las columnas del Inventario:
-// [Etiqueta, Bodega, Añada, País, Provincia, Cepa, Tipo, Ubicación, Unid.]
-const DEFAULT_COL_WIDTHS = [240, 170, 60, 100, 130, 140, 90, 130, 60];
+// [Etiqueta, Bodega, Añada, País, Provincia, Cepa, Tipo, Unid.]
+const DEFAULT_COL_WIDTHS = [240, 170, 60, 100, 130, 140, 90, 60];
 const MIN_COL_WIDTH = 40;
 const GIST_PUSH_DEBOUNCE_MS = 1500;   // tras un cambio local, esperá esto y subí
 const GIST_POLL_MS = 30000;           // chequeá cambios remotos cada 30s
@@ -1240,7 +1240,9 @@ Reglas:
       && (!filterPais||w.pais===filterPais)
       && (!filterAnada||String(w.anada)===String(filterAnada))
       && (!filterCepa||w.cepa===filterCepa)
-      && (!filterCava||w.cava===filterCava);
+      && (!filterCava || (filterCava==="sinpos"
+            ? (w.cava!=="caja" && (w.row===""||w.row==null||w.col===""||w.col==null))
+            : w.cava===filterCava));
   });
 
   const openDetail = (w) => { setSelectedWine(w); setModal({mode:"detail"}); };
@@ -1603,11 +1605,11 @@ Reglas:
                     <SelF v={filterPais}  s={setFilterPais}  def="País"  opts={paisesInv}/>
                     <SelF v={filterTipo}  s={setFilterTipo}  def="Tipo"  opts={tiposInv}/>
                     <SelF v={filterCepa}  s={setFilterCepa}  def="Cepa"  opts={cepasInv}/>
-                    <SelF v={filterCava}  s={setFilterCava}  def="Todas las cavas"  opts={CAVAS.map(c=>[c.id,c.short])}/>
+                    <SelF v={filterCava}  s={setFilterCava}  def="Todas las cavas"  opts={[...CAVAS.map(c=>[c.id,c.short]),["sinpos","Sin posición"]]}/>
                   </>);
                 })()}
-                <button onClick={resetColWidths} title="Volver a los anchos por defecto"
-                        style={{padding:"7px 12px",background:"#fff",color:"#888",border:"1px solid #E5E5E5",borderRadius:7,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>↔ Reset cols</button>
+                <button onClick={()=>{setSearch("");setFilterTipo("");setFilterPais("");setFilterAnada("");setFilterCepa("");setFilterCava("");}} title="Limpiar búsqueda y todos los filtros"
+                        style={{padding:"7px 12px",background:"#fff",color:"#888",border:"1px solid #E5E5E5",borderRadius:7,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>✕ Quitar filtros</button>
                 <button onClick={()=>openFormNew()} style={{padding:"7px 16px",background:"#1A1A1A",color:"#fff",border:"none",borderRadius:7,fontSize:12,cursor:"pointer",fontWeight:500,whiteSpace:"nowrap"}}>+ Agregar</button>
               </div>
               {wines.length===0?(
@@ -1674,7 +1676,7 @@ Reglas:
                 const tableMinWidth = colWidths.reduce((a,b)=>a+b, 0) + 28; // suma + padding lateral
                 const headers = [
                   ["Etiqueta","nombre"],["Bodega","bodega"],["Añada","anada"],["País","pais"],
-                  ["Provincia","provincia"],["Cepa","cepa"],["Tipo","tipo"],["Ubicación","ubicacion"],
+                  ["Provincia","provincia"],["Cepa","cepa"],["Tipo","tipo"],
                   ["Unid.","unidades"]
                 ];
                 return (
@@ -1686,9 +1688,9 @@ Reglas:
                         const arrow = active ? (sortDir === "asc" ? " ▲" : " ▼") : "";
                         const isLast = i === headers.length - 1;
                         return (
-                          <div key={i} style={{position:"relative",overflow:"hidden"}}>
+                          <div key={i} style={{position:"relative"}}>
                             <div onClick={key ? ()=>handleSortClick(key) : undefined}
-                                 style={{fontSize:10,fontWeight:600,letterSpacing:"0.06em",color:active?"#1a1a1a":"#bbb",textTransform:"uppercase",cursor:key?"pointer":"default",userSelect:"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",paddingRight:isLast?0:6}}
+                                 style={{fontSize:10,fontWeight:600,letterSpacing:"0.06em",color:active?"#1a1a1a":"#bbb",textTransform:"uppercase",cursor:key?"pointer":"default",userSelect:"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",paddingRight:isLast?0:10}}
                                  onMouseEnter={e=>{if(key)e.currentTarget.style.color="#666";}}
                                  onMouseLeave={e=>{if(key)e.currentTarget.style.color=active?"#1a1a1a":"#bbb";}}>
                               {h}{arrow}
@@ -1696,9 +1698,12 @@ Reglas:
                             {!isLast && (
                               <div onMouseDown={(e)=>startColResize(i, e)}
                                    onClick={e=>e.stopPropagation()}
-                                   title="Arrastrá para ajustar ancho"
-                                   style={{position:"absolute",top:-7,right:-9,bottom:-7,width:14,cursor:"col-resize",zIndex:5,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                                <div style={{width:1,height:"100%",background:"#E5E5E5"}}/>
+                                   onDoubleClick={(e)=>{e.stopPropagation(); setColWidths(prev=>{const next=[...prev]; next[i]=DEFAULT_COL_WIDTHS[i]; try{localStorage.setItem(COL_WIDTHS_KEY,JSON.stringify(next));}catch(_){} return next;});}}
+                                   title="Arrastrá para ajustar el ancho · doble clic para resetear esta columna"
+                                   style={{position:"absolute",top:-7,right:-7,bottom:-7,width:16,cursor:"col-resize",zIndex:5,display:"flex",alignItems:"center",justifyContent:"center"}}
+                                   onMouseEnter={e=>{const l=e.currentTarget.firstChild; l.style.background="#1A1A1A"; l.style.width="2px";}}
+                                   onMouseLeave={e=>{const l=e.currentTarget.firstChild; l.style.background="#D0D0D0"; l.style.width="2px";}}>
+                                <div style={{width:"2px",height:"60%",background:"#D0D0D0",borderRadius:2,transition:"background 0.1s"}}/>
                               </div>
                             )}
                           </div>
@@ -1736,7 +1741,6 @@ Reglas:
                             <div style={{fontSize:12,color:"#666",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={w.provincia}>{w.provincia||"—"}</div>
                             <div style={{fontSize:12,color:"#666",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={w.cepa}>{w.cepa||"—"}</div>
                             <div><span style={{padding:"2px 7px",borderRadius:4,fontSize:10,background:TYPE_BG[w.tipo]||"#f5f5f5",color:TYPE_COLOR[w.tipo]||"#888",fontWeight:500,whiteSpace:"nowrap"}}>{w.tipo}</span></div>
-                            <div style={{fontSize:11,color:"#888",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={summarizeLoc(g.bottles)}>{summarizeLoc(g.bottles)}</div>
                             <div style={{fontSize:12,fontWeight:600,color:g.bottles.length>1?"#1A1A1A":"#aaa",textAlign:"center"}}>{g.bottles.length}</div>
                           </div>
                           {isExp && g.bottles.length>1 && (

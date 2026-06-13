@@ -61,9 +61,12 @@
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useCallback, useMemo, useRef } = React;
 
-const CAVA_GRANDE = { id: "grande", label: "INELRO 177", rows: 15, colsFront: 5, colsBack: 6 };
-const CAJA = { id: "caja", label: "Caja (fuera de cava)", rows: 0, colsFront: 0, colsBack: 0 };
-const CAVAS = [CAVA_GRANDE, CAJA];
+const CAVA_GRANDE = { id: "grande", label: "Inelro", short: "Inelro", rows: 15, colsFront: 5, colsBack: 6 };
+const CAVA_VONDOM = { id: "vondom", label: "Vondom", short: "Vondom", rows: 6, colsFront: 2, colsBack: 0 };
+const CAJA = { id: "caja", label: "Caja (fuera de cava)", short: "Caja", rows: 0, colsFront: 0, colsBack: 0 };
+const CAVAS = [CAVA_GRANDE, CAVA_VONDOM, CAJA];
+const cavaConf = (id) => CAVAS.find(c => c.id === id) || CAVA_GRANDE;
+const GRID_CAVAS = CAVAS.filter(c => c.rows > 0); // las que tienen mapa (grande, vondom)
 
 const TIPOS = [
   "Tinto","Blanco","Rosado","Naranjo",
@@ -185,12 +188,17 @@ function mergeDb(a, b) {
     const prev = delMap.get(d.id);
     if (!prev || (d.deletedAt || EPOCH) > (prev.deletedAt || EPOCH)) delMap.set(d.id, d);
   });
+  // completitud: cantidad de campos con valor (para desempatar a favor del registro más completo)
+  const filledScore = (o) => Object.keys(o).reduce((n,k)=>{ const v=o[k]; return n + ((v!=="" && v!=null && !(Array.isArray(v)&&v.length===0)) ? 1 : 0); }, 0);
   const mergeList = (la, lb) => {
     const m = new Map();
     [...(la || []), ...(lb || [])].forEach(r => {
       if (!r || !r.id) return;
       const prev = m.get(r.id);
-      if (!prev || recUpdatedAt(r) >= recUpdatedAt(prev)) m.set(r.id, r);
+      if (!prev) { m.set(r.id, r); return; }
+      const ur = recUpdatedAt(r), up = recUpdatedAt(prev);
+      if (ur > up) m.set(r.id, r);                                  // más reciente gana
+      else if (ur === up && filledScore(r) > filledScore(prev)) m.set(r.id, r); // empate → el más completo (p.ej. con posición)
     });
     return m;
   };
@@ -351,6 +359,7 @@ function App() {
   const [filterPais, setFilterPais] = useState("");
   const [filterAnada, setFilterAnada] = useState("");
   const [filterCepa, setFilterCepa] = useState("");
+  const [filterCava, setFilterCava] = useState("");
   const [sortCol, setSortCol] = useState("");
   const [sortDir, setSortDir] = useState("asc");
   const handleSortClick = (col) => {
@@ -1212,11 +1221,13 @@ Reglas:
     );
   }
 
-  const conf = CAVAS.find(c => c.id === "grande");
+  const conf = CAVA_GRANDE;
   const getWineAt = (cava, row, col, zona) => db.wines.find(w => w.cava===cava && w.row===row && w.col===col && w.zona===zona) || null;
-  const totalPos = conf.rows * (conf.colsFront + conf.colsBack);
-  const ocupacion = db.wines.filter(w => w.row !== "" && w.col !== "").length;
+  const cavaPositions = (c) => c.rows * (c.colsFront + c.colsBack);
+  const totalPos = GRID_CAVAS.reduce((a,c)=>a+cavaPositions(c),0); // total de lugares en todas las cavas con mapa
+  const ocupacion = db.wines.filter(w => w.cava!=="caja" && w.row !== "" && w.col !== "").length;
   const enCaja = db.wines.filter(w => w.cava === "caja").length;
+  const countCava = (id) => db.wines.filter(w => w.cava === id).length;
   const enCavaCount = db.wines.length - enCaja;
   const paises = [...new Set(db.wines.map(w => w.pais).filter(Boolean))];
   const porTipo = TIPOS.reduce((a,t) => { const n = db.wines.filter(w=>w.tipo===t).length; if(n>0) a.push({t,n}); return a; }, []);
@@ -1228,7 +1239,8 @@ Reglas:
       && (!filterTipo||w.tipo===filterTipo)
       && (!filterPais||w.pais===filterPais)
       && (!filterAnada||String(w.anada)===String(filterAnada))
-      && (!filterCepa||w.cepa===filterCepa);
+      && (!filterCepa||w.cepa===filterCepa)
+      && (!filterCava||w.cava===filterCava);
   });
 
   const openDetail = (w) => { setSelectedWine(w); setModal({mode:"detail"}); };
@@ -1249,9 +1261,89 @@ Reglas:
       ...db,
       wines: db.wines.map(x => x.id === wineId ? { ...x, cava, row, col, zona } : x)
     });
-    const posTxt = `Estante ${row+1} · ${zona==="atrás"?"Atrás":"Adelante"} · pos ${col+1}`;
+    const cc = cavaConf(cava);
+    const posTxt = cc.colsBack>0
+      ? `${cc.short} · Estante ${row+1} · ${zona==="atrás"?"Atrás":"Adelante"} · pos ${col+1}`
+      : `${cc.short} · fila ${row+1} · pos ${col+1}`;
     setDropMsg(`✓ "${w.nombre || "Vino"}" movido a ${posTxt}.`);
     setTimeout(()=>setDropMsg(""), 4000);
+  };
+  // ── Render de un mapa de cava (reutilizable: grande, Vondom, …) ──
+  const renderCavaMap = (cc) => {
+    const occ = db.wines.filter(w => w.cava===cc.id && w.row!=="" && w.col!=="" && w.row!=null && w.col!=null).length;
+    const total = cc.rows * (cc.colsFront + cc.colsBack);
+    const hasBack = cc.colsBack > 0;
+    return (
+      <div style={{marginBottom:14}}>
+        <div style={{fontWeight:600,fontSize:13,marginBottom:1}}>Mapa · {cc.short}</div>
+        <div style={{fontSize:11,color:"#aaa",marginBottom:10}}>{occ} / {total} posiciones</div>
+        {hasBack ? (
+          <div style={{display:"flex",marginBottom:3,marginLeft:20}}>
+            <div style={{width:cc.colsFront*22,textAlign:"center",fontSize:8.5,color:"#ccc",letterSpacing:"0.06em"}}>ADELANTE ({cc.colsFront})</div>
+            <div style={{width:12}}/>
+            <div style={{width:cc.colsBack*22,textAlign:"center",fontSize:8.5,color:"#ccc",letterSpacing:"0.06em"}}>ATRÁS ({cc.colsBack})</div>
+          </div>
+        ) : null}
+        <div style={{display:"flex",marginBottom:2,marginLeft:20}}>
+          {[...Array(cc.colsFront)].map((_,i)=><div key={i} style={{width:22,fontSize:8,color:"#ddd",textAlign:"center"}}>{i+1}</div>)}
+          {hasBack && <div style={{width:12}}/>}
+          {hasBack && [...Array(cc.colsBack)].map((_,i)=><div key={"b"+i} style={{width:22,fontSize:8,color:"#ddd",textAlign:"center"}}>{i+1}</div>)}
+        </div>
+        {Array.from({length:cc.rows},(_,r)=>(
+          <div key={r} style={{display:"flex",alignItems:"center",marginBottom:2}}>
+            <div style={{width:18,fontSize:9,color:"#ccc",textAlign:"right",paddingRight:3,flexShrink:0}}>{r+1}</div>
+            {[...Array(cc.colsFront)].map((_,c)=>{
+              const w=getWineAt(cc.id,r,c,"adelante");
+              return <MapCell key={"f"+c} wine={w}
+                onClick={()=>w?openDetail(w):openFormNew({cava:cc.id,row:r,col:c,zona:"adelante"})}
+                dragActive={dragWineId}
+                onDrop={()=>{ moveWineToCell(dragWineId,cc.id,r,c,"adelante"); setDragWineId(null); }}/>;
+            })}
+            {hasBack && <div style={{width:1,alignSelf:"stretch",background:"#D8C9A8",margin:"0 5px",borderRadius:1}}/>}
+            {hasBack && [...Array(cc.colsBack)].map((_,c)=>{
+              const w=getWineAt(cc.id,r,c,"atrás");
+              return <MapCell key={"b"+c} wine={w}
+                onClick={()=>w?openDetail(w):openFormNew({cava:cc.id,row:r,col:c,zona:"atrás"})}
+                dragActive={dragWineId}
+                onDrop={()=>{ moveWineToCell(dragWineId,cc.id,r,c,"atrás"); setDragWineId(null); }}/>;
+            })}
+          </div>
+        ))}
+      </div>
+    );
+  };
+  // ── Lista "sin posición exacta" de una cava (se muestra debajo de los mapas) ──
+  const renderUnplaced = (cc) => {
+    const su = db.wines.filter(w => w.cava===cc.id && (w.row===""||w.col===""||w.row==null||w.col==null));
+    if(!su.length) return null;
+    const grupos = {};
+    su.forEach(w => { const k=(w.row===""||w.row==null)?"?":`Fila ${w.row+1}`; (grupos[k]=grupos[k]||[]).push(w); });
+    const orden = Object.keys(grupos).sort((a,b)=>{ if(a==="?")return 1; if(b==="?")return -1; return parseInt(a.replace(/\D/g,""))-parseInt(b.replace(/\D/g,"")); });
+    return (
+      <div style={{marginTop:12,paddingTop:10,borderTop:"1px solid #f0f0f0"}}>
+        <div style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#4A4A4A",textTransform:"uppercase",marginBottom:6}}>Sin posición · {cc.short} — {su.length}</div>
+        <div className="scroll" style={{maxHeight:200,overflowY:"auto",display:"flex",flexDirection:"column",gap:6}}>
+          {orden.map(grupo=>(
+            <div key={grupo}>
+              <div style={{fontSize:9,fontWeight:600,color:"#aaa",letterSpacing:"0.05em",marginBottom:2}}>{grupo} · {grupos[grupo].length}</div>
+              <div style={{display:"flex",flexDirection:"column",gap:2}}>
+                {grupos[grupo].map(w=>(
+                  <div key={w.id} onClick={()=>openFormEdit(w)}
+                       style={{display:"flex",alignItems:"center",gap:6,padding:"4px 7px",borderRadius:4,cursor:"pointer",background:"#F7F7F7",border:"1px solid #E5E5E5"}}
+                       onMouseEnter={e=>e.currentTarget.style.background="#FFF0E0"}
+                       onMouseLeave={e=>e.currentTarget.style.background="#F7F7F7"}>
+                    <div style={{width:7,height:7,borderRadius:2,background:TYPE_COLOR[w.tipo]||"#ccc",flexShrink:0}}/>
+                    <div style={{fontSize:10.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{w.nombre}</div>
+                    <div style={{fontSize:9,color:"#bbb",flexShrink:0}}>{w.anada||""}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{fontSize:9.5,color:"#bbb",marginTop:4}}>Clic para asignar posición exacta</div>
+      </div>
+    );
   };
   // Elegir qué botella del grupo arrastrar: prioriza una sin ubicación
   const pickDragBottle = (group) => {
@@ -1264,18 +1356,20 @@ Reglas:
 
   const saveWine = async () => {
     if (!form.nombre.trim() || !form.bodega.trim()) { setFormErr("Nombre y Bodega son obligatorios."); return; }
+    const cc = cavaConf(form.cava);
+    const zona = cc.colsBack>0 ? form.zona : "adelante"; // cavas planas (Vondom) solo usan 'adelante'
     let row = form.row, col = form.col;
     const hasRow = form.row !== "" && form.row !== null && form.row !== undefined;
     const hasCol = form.col !== "" && form.col !== null && form.col !== undefined;
-    if (hasRow && hasCol) {
+    if (form.cava !== "caja" && hasRow && hasCol) {
       row = parseInt(form.row); col = parseInt(form.col);
-      const maxCol = form.zona==="adelante" ? conf.colsFront : conf.colsBack;
-      if (isNaN(row)||row<0||row>=conf.rows) { setFormErr("Fila inválida."); return; }
+      const maxCol = zona==="adelante" ? cc.colsFront : cc.colsBack;
+      if (isNaN(row)||row<0||row>=cc.rows) { setFormErr("Fila inválida."); return; }
       if (isNaN(col)||col<0||col>=maxCol) { setFormErr(`Columna inválida (máx ${maxCol}).`); return; }
-      const conflict = db.wines.find(w => w.cava===form.cava&&w.row===row&&w.col===col&&w.zona===form.zona&&w.id!==modal.editId);
+      const conflict = db.wines.find(w => w.cava===form.cava&&w.row===row&&w.col===col&&w.zona===zona&&w.id!==modal.editId);
       if (conflict) { setFormErr(`Posición ocupada por: ${conflict.nombre}`); return; }
     } else { row = ""; col = ""; }
-    const entry = {...form, row, col, id:modal.editId||genId(), fechaIngreso:modal.editId?form.fechaIngreso:new Date().toISOString()};
+    const entry = {...form, zona, row, col, id:modal.editId||genId(), fechaIngreso:modal.editId?form.fechaIngreso:new Date().toISOString()};
     await persist({...db, wines: modal.editId ? db.wines.map(w=>w.id===modal.editId?entry:w) : [...db.wines,entry]});
     closeModal();
   };
@@ -1388,8 +1482,12 @@ Reglas:
         <div style={{background:"#fff",border:"1px solid #E5E5E5",borderRadius:8,padding:"14px 16px"}}>
           <div style={{fontSize:10,fontWeight:600,letterSpacing:"0.08em",color:"#9A9A9A",marginBottom:8,textTransform:"uppercase"}}>Botellas</div>
           <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:3,fontSize:13,color:"#1A1A1A"}}>
-            <span style={{color:"#9A9A9A",fontSize:11}}>En cava</span>
-            <span style={{fontWeight:500}}>{enCavaCount}</span>
+            <span style={{color:"#9A9A9A",fontSize:11}}>{CAVA_GRANDE.short}</span>
+            <span style={{fontWeight:500}}>{countCava("grande")}</span>
+          </div>
+          <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:3,fontSize:13,color:"#1A1A1A"}}>
+            <span style={{color:"#9A9A9A",fontSize:11}}>Vondom</span>
+            <span style={{fontWeight:500}}>{countCava("vondom")}</span>
           </div>
           <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:6,fontSize:13,color:"#1A1A1A"}}>
             <span style={{color:"#9A9A9A",fontSize:11}}>En caja</span>
@@ -1441,38 +1539,11 @@ Reglas:
           <div style={{display:"grid",gridTemplateColumns:"290px 1fr",gap:12}}>
             {/* MAPA */}
             <div style={{background:"#fff",border:"1px solid #E5E5E5",borderRadius:10,padding:"14px 12px",alignSelf:"start"}}>
-              <div style={{fontWeight:600,fontSize:13,marginBottom:1}}>Mapa de Cava</div>
-              <div style={{fontSize:11,color:"#aaa",marginBottom:12}}>{ocupacion} / {totalPos} posiciones</div>
-              <div style={{display:"flex",marginBottom:3,marginLeft:20}}>
-                <div style={{width:conf.colsFront*22,textAlign:"center",fontSize:8.5,color:"#ccc",letterSpacing:"0.06em"}}>ADELANTE ({conf.colsFront})</div>
-                <div style={{width:12}}/>
-                <div style={{width:conf.colsBack*22,textAlign:"center",fontSize:8.5,color:"#ccc",letterSpacing:"0.06em"}}>ATRÁS ({conf.colsBack})</div>
-              </div>
-              <div style={{display:"flex",marginBottom:2,marginLeft:20}}>
-                {[...Array(conf.colsFront)].map((_,i)=><div key={i} style={{width:22,fontSize:8,color:"#ddd",textAlign:"center"}}>{i+1}</div>)}
-                <div style={{width:12}}/>
-                {[...Array(conf.colsBack)].map((_,i)=><div key={i} style={{width:22,fontSize:8,color:"#ddd",textAlign:"center"}}>{i+1}</div>)}
-              </div>
-              {Array.from({length:conf.rows},(_,r)=>(
-                <div key={r} style={{display:"flex",alignItems:"center",marginBottom:2}}>
-                  <div style={{width:18,fontSize:9,color:"#ccc",textAlign:"right",paddingRight:3,flexShrink:0}}>{r+1}</div>
-                  {[...Array(conf.colsFront)].map((_,c)=>{
-                    const w=getWineAt("grande",r,c,"adelante");
-                    return <MapCell key={"f"+c} wine={w}
-                      onClick={()=>w?openDetail(w):openFormNew({cava:"grande",row:r,col:c,zona:"adelante"})}
-                      dragActive={dragWineId}
-                      onDrop={()=>{ moveWineToCell(dragWineId,"grande",r,c,"adelante"); setDragWineId(null); }}/>;
-                  })}
-                  <div style={{width:1,alignSelf:"stretch",background:"#D8C9A8",margin:"0 5px",borderRadius:1}}/>
-                  {[...Array(conf.colsBack)].map((_,c)=>{
-                    const w=getWineAt("grande",r,c,"atrás");
-                    return <MapCell key={"b"+c} wine={w}
-                      onClick={()=>w?openDetail(w):openFormNew({cava:"grande",row:r,col:c,zona:"atrás"})}
-                      dragActive={dragWineId}
-                      onDrop={()=>{ moveWineToCell(dragWineId,"grande",r,c,"atrás"); setDragWineId(null); }}/>;
-                  })}
-                </div>
-              ))}
+              {renderCavaMap(CAVA_GRANDE)}
+              <div style={{borderTop:"1px solid #ECECEC",marginBottom:14}}/>
+              {renderCavaMap(CAVA_VONDOM)}
+              {renderUnplaced(CAVA_GRANDE)}
+              {renderUnplaced(CAVA_VONDOM)}
               <div style={{marginTop:10,paddingTop:8,borderTop:"1px solid #f0f0f0",display:"flex",flexWrap:"wrap",gap:"5px 10px"}}>
                 <div style={{display:"flex",alignItems:"center",gap:3,fontSize:10,color:"#bbb"}}>
                   <div style={{width:9,height:9,borderRadius:2,border:"1px solid #E5E5E5",background:"#fafafa"}}/> Vacío
@@ -1483,45 +1554,6 @@ Reglas:
                   </div>
                 ))}
               </div>
-              {(()=>{
-                const su = db.wines.filter(w => w.cava==="grande" && (w.row===""||w.col===""));
-                if(!su.length) return null;
-                // Agrupar por estante
-                const grupos = {};
-                su.forEach(w => {
-                  const k = (w.row === "" || w.row === null) ? "?" : `Estante ${w.row+1}`;
-                  (grupos[k] = grupos[k] || []).push(w);
-                });
-                const orden = Object.keys(grupos).sort((a,b)=>{
-                  if (a==="?" ) return 1; if (b==="?") return -1;
-                  return parseInt(a.replace(/\D/g,""))-parseInt(b.replace(/\D/g,""));
-                });
-                return (
-                  <div style={{marginTop:12,paddingTop:10,borderTop:"1px solid #f0f0f0"}}>
-                    <div style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#4A4A4A",textTransform:"uppercase",marginBottom:6}}>Sin posición exacta — {su.length}</div>
-                    <div className="scroll" style={{maxHeight:240,overflowY:"auto",display:"flex",flexDirection:"column",gap:6}}>
-                      {orden.map(grupo=>(
-                        <div key={grupo}>
-                          <div style={{fontSize:9,fontWeight:600,color:"#aaa",letterSpacing:"0.05em",marginBottom:2}}>{grupo} · {grupos[grupo].length}</div>
-                          <div style={{display:"flex",flexDirection:"column",gap:2}}>
-                            {grupos[grupo].map(w=>(
-                              <div key={w.id} onClick={()=>openFormEdit(w)}
-                                   style={{display:"flex",alignItems:"center",gap:6,padding:"4px 7px",borderRadius:4,cursor:"pointer",background:"#F7F7F7",border:"1px solid #E5E5E5"}}
-                                   onMouseEnter={e=>e.currentTarget.style.background="#FFF0E0"}
-                                   onMouseLeave={e=>e.currentTarget.style.background="#F7F7F7"}>
-                                <div style={{width:7,height:7,borderRadius:2,background:TYPE_COLOR[w.tipo]||"#ccc",flexShrink:0}}/>
-                                <div style={{fontSize:10.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{w.nombre}</div>
-                                <div style={{fontSize:9,color:"#bbb",flexShrink:0}}>{w.anada||""}</div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    <div style={{fontSize:9.5,color:"#bbb",marginTop:4}}>Clic para asignar posición exacta</div>
-                  </div>
-                );
-              })()}
               {(()=>{
                 const cajaWines = db.wines.filter(w => w.cava==="caja");
                 if(!cajaWines.length) return null;
@@ -1571,6 +1603,7 @@ Reglas:
                     <SelF v={filterPais}  s={setFilterPais}  def="País"  opts={paisesInv}/>
                     <SelF v={filterTipo}  s={setFilterTipo}  def="Tipo"  opts={tiposInv}/>
                     <SelF v={filterCepa}  s={setFilterCepa}  def="Cepa"  opts={cepasInv}/>
+                    <SelF v={filterCava}  s={setFilterCava}  def="Todas las cavas"  opts={CAVAS.map(c=>[c.id,c.short])}/>
                   </>);
                 })()}
                 <button onClick={resetColWidths} title="Volver a los anchos por defecto"
@@ -1610,9 +1643,12 @@ Reglas:
                     else if (sortCol === "ubicacion") {
                       const locKey = (g) => {
                         const w = g.sample;
-                        if (w.cava === "caja") return 9999;
-                        if (w.row === "" || w.row === null || w.row === undefined) return 9998;
-                        return (w.row+1) * 100 + ((w.col||0)+1);
+                        if (w.cava === "caja") return 9000000;
+                        // ordenar por cava (según el orden de CAVAS), después fila y posición
+                        const ci = GRID_CAVAS.findIndex(c=>c.id===w.cava);
+                        const cavaBase = (ci<0?GRID_CAVAS.length:ci) * 1000000;
+                        if (w.row === "" || w.row === null || w.row === undefined) return cavaBase + 999999;
+                        return cavaBase + (w.row+1) * 100 + ((w.col||0)+1);
                       };
                       av = locKey(a); bv = locKey(b);
                     }
@@ -1707,10 +1743,14 @@ Reglas:
                             <div style={{background:"#F7F7F7",borderTop:"1px solid #F0F0F0"}}>
                               {g.bottles.map((b,bi)=>{
                                 let posTxt;
+                                const bc = cavaConf(b.cava);
+                                const pref = b.cava==="grande" ? "" : bc.short+" · ";
                                 if (b.cava==="caja") posTxt = "📦 En caja";
-                                else if (b.row===""||b.row===null||b.row===undefined) posTxt = "Sin estante";
-                                else if (b.col===""||b.col===null||b.col===undefined) posTxt = `Estante ${b.row+1} · sin posición exacta`;
-                                else posTxt = `Estante ${b.row+1} · ${b.zona==="atrás"?"Atrás":"Adelante"} · posición ${b.col+1}`;
+                                else if (b.row===""||b.row===null||b.row===undefined) posTxt = pref+"sin ubicar";
+                                else if (b.col===""||b.col===null||b.col===undefined) posTxt = pref+(bc.colsBack>0?`Estante ${b.row+1}`:`Fila ${b.row+1}`)+` · sin posición exacta`;
+                                else posTxt = bc.colsBack>0
+                                  ? pref+`Estante ${b.row+1} · ${b.zona==="atrás"?"Atrás":"Adelante"} · posición ${b.col+1}`
+                                  : pref+`Fila ${b.row+1} · posición ${b.col+1}`;
                                 return (
                                   <div key={b.id} onClick={()=>openDetail(b)}
                                        draggable={true}
@@ -2040,7 +2080,9 @@ Reglas:
             <div style={{background:"#fff",border:"1px solid #E5E5E5",borderRadius:10,padding:"18px 20px"}}>
               <div style={{fontWeight:600,fontSize:14,marginBottom:4}}>Cava configurada</div>
               <div style={{fontSize:12,color:"#666",lineHeight:1.6}}>
-                INELRO 177 BOT STEEL DOOR · {conf.rows} filas × ({conf.colsFront} adelante + {conf.colsBack} atrás) = <strong>{totalPos} posiciones</strong>.<br/>
+                <strong>Inelro</strong> (INELRO 177 BOT STEEL DOOR) · {CAVA_GRANDE.rows} filas × ({CAVA_GRANDE.colsFront} adelante + {CAVA_GRANDE.colsBack} atrás) = {CAVA_GRANDE.rows*(CAVA_GRANDE.colsFront+CAVA_GRANDE.colsBack)} posiciones.<br/>
+                <strong>Vondom</strong> · {CAVA_VONDOM.rows} filas × {CAVA_VONDOM.colsFront} = {CAVA_VONDOM.rows*CAVA_VONDOM.colsFront} posiciones.<br/>
+                <span style={{color:"#888"}}>Total: <strong>{totalPos} posiciones</strong> en {GRID_CAVAS.length} cavas.</span><br/>
                 <span style={{color:"#aaa"}}>Si tu cava real tiene un layout distinto, decime y ajustamos.</span>
               </div>
             </div>
@@ -2097,12 +2139,15 @@ Reglas:
                     {w.notas&&<div style={{gridColumn:"1/-1"}}><div style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#bbb",textTransform:"uppercase",marginBottom:2}}>Notas adicionales</div><div style={{fontSize:13,color:"#555"}}>{w.notas}</div></div>}
                     {w.foto&&<div style={{gridColumn:"1/-1"}}><div style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#bbb",textTransform:"uppercase",marginBottom:6}}>Foto</div><img src={w.foto} style={{width:"100%",maxHeight:200,objectFit:"contain",borderRadius:8,border:"1px solid #E5E5E5"}}/></div>}
                   </div>
-                  {w.row!==""&&w.row!==undefined&&w.row>=0&&(
+                  {w.cava!=="caja"&&w.row!==""&&w.row!==undefined&&w.row>=0&&(()=>{
+                    const dc = cavaConf(w.cava);
+                    return (
                     <div style={{background:"#F7F7F7",borderRadius:7,padding:"9px 12px",display:"flex",gap:20}}>
-                      <div><div style={{fontSize:10,color:"#bbb",fontWeight:600,letterSpacing:"0.07em",textTransform:"uppercase",marginBottom:2}}>Cava</div><div style={{fontSize:12}}>Cava 1</div></div>
-                      <div><div style={{fontSize:10,color:"#bbb",fontWeight:600,letterSpacing:"0.07em",textTransform:"uppercase",marginBottom:2}}>Posición</div><div style={{fontSize:12}}>Fila {w.row+1} · Col {w.col+1} · {w.zona==="adelante"?"Adelante":"Atrás"}</div></div>
+                      <div><div style={{fontSize:10,color:"#bbb",fontWeight:600,letterSpacing:"0.07em",textTransform:"uppercase",marginBottom:2}}>Cava</div><div style={{fontSize:12}}>{dc.short}</div></div>
+                      <div><div style={{fontSize:10,color:"#bbb",fontWeight:600,letterSpacing:"0.07em",textTransform:"uppercase",marginBottom:2}}>Posición</div><div style={{fontSize:12}}>{dc.colsBack>0?`Fila ${w.row+1} · Col ${w.col+1} · ${w.zona==="adelante"?"Adelante":"Atrás"}`:`Fila ${w.row+1} · Pos ${w.col+1}`}</div></div>
                     </div>
-                  )}
+                    );
+                  })()}
                 </div>
                 <div style={{padding:"0 20px 18px",display:"flex",gap:8,flexWrap:"wrap"}}>
                   <button onClick={()=>openFormEdit(w)} style={{padding:"7px 14px",background:"#1A1A1A",color:"#fff",border:"none",borderRadius:6,fontSize:12,cursor:"pointer"}}>Editar</button>
@@ -2192,38 +2237,46 @@ Reglas:
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
                       <div>
                         <label style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#aaa",textTransform:"uppercase",display:"block",marginBottom:4}}>Dónde está</label>
-                        <select value={form.cava} onChange={e=>setForm(f=>({...f,cava:e.target.value, ...(e.target.value==="caja"?{row:"",col:""}:{})}))} style={ss}>
-                          <option value="grande">En cava (INELRO 177)</option>
+                        <select value={form.cava} onChange={e=>{const nc=e.target.value; setForm(f=>({...f,cava:nc,row:"",col:"",zona:"adelante"}));}} style={ss}>
+                          <option value="grande">En cava (Inelro)</option>
+                          <option value="vondom">En cava (Vondom)</option>
                           <option value="caja">📦 En caja (fuera de cava)</option>
                         </select>
                       </div>
                     </div>
-                    {form.cava==="grande" && (
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
-                      <div>
-                        <label style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#aaa",textTransform:"uppercase",display:"block",marginBottom:4}}>Zona</label>
-                        <select value={form.zona} onChange={e=>setForm(f=>({...f,zona:e.target.value}))} style={ss}>
-                          <option value="adelante">Adelante</option>
-                          <option value="atrás">Atrás</option>
-                        </select>
+                    {form.cava!=="caja" && (()=>{
+                      const fc = cavaConf(form.cava);
+                      const hasBack = fc.colsBack>0;
+                      const maxCol = (form.zona==="adelante"||!hasBack) ? fc.colsFront : fc.colsBack;
+                      return (
+                      <div style={{display:"grid",gridTemplateColumns:hasBack?"1fr 1fr 1fr":"1fr 1fr",gap:8}}>
+                        {hasBack && (
+                        <div>
+                          <label style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#aaa",textTransform:"uppercase",display:"block",marginBottom:4}}>Zona</label>
+                          <select value={form.zona} onChange={e=>setForm(f=>({...f,zona:e.target.value,col:""}))} style={ss}>
+                            <option value="adelante">Adelante</option>
+                            <option value="atrás">Atrás</option>
+                          </select>
+                        </div>
+                        )}
+                        <div>
+                          <label style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#aaa",textTransform:"uppercase",display:"block",marginBottom:4}}>{hasBack?"Estante":"Fila"}</label>
+                          <select value={form.row} onChange={e=>setForm(f=>({...f,row:e.target.value===""?"":parseInt(e.target.value)}))} style={ss}>
+                            <option value="">—</option>
+                            {Array.from({length:fc.rows},(_,i)=><option key={i} value={i}>{i+1}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#aaa",textTransform:"uppercase",display:"block",marginBottom:4}}>Posición</label>
+                          <select value={form.col} onChange={e=>setForm(f=>({...f,col:e.target.value===""?"":parseInt(e.target.value)}))} style={ss}>
+                            <option value="">—</option>
+                            {Array.from({length:maxCol},(_,i)=><option key={i} value={i}>{i+1}</option>)}
+                          </select>
+                        </div>
                       </div>
-                      <div>
-                        <label style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#aaa",textTransform:"uppercase",display:"block",marginBottom:4}}>Estante</label>
-                        <select value={form.row} onChange={e=>setForm(f=>({...f,row:e.target.value===""?"":parseInt(e.target.value)}))} style={ss}>
-                          <option value="">—</option>
-                          {Array.from({length:conf.rows},(_,i)=><option key={i} value={i}>{i+1}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#aaa",textTransform:"uppercase",display:"block",marginBottom:4}}>Posición</label>
-                        <select value={form.col} onChange={e=>setForm(f=>({...f,col:e.target.value===""?"":parseInt(e.target.value)}))} style={ss}>
-                          <option value="">—</option>
-                          {Array.from({length:form.zona==="adelante"?conf.colsFront:conf.colsBack},(_,i)=><option key={i} value={i}>{i+1}</option>)}
-                        </select>
-                      </div>
-                    </div>
-                    )}
-                    <div style={{fontSize:10,color:"#bbb",marginTop:6}}>{form.cava==="caja"?"En caja: no se asigna estante ni posición.":"Dejá Estante/Posición en \"—\" para guardar como \"Sin ubicar\" dentro del estante."}</div>
+                      );
+                    })()}
+                    <div style={{fontSize:10,color:"#bbb",marginTop:6}}>{form.cava==="caja"?"En caja: no se asigna estante ni posición.":"Dejá Fila/Posición en \"—\" para guardar como \"Sin ubicar\"."}</div>
                   </div>
 
                   {formErr&&<div style={{color:"#1A1A1A",fontSize:12,marginTop:8,padding:"7px 10px",background:"#FAFAFA",borderRadius:5,border:"1px solid #E5E5E5"}}>{formErr}</div>}

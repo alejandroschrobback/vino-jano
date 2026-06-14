@@ -110,6 +110,8 @@ const TYPE_BG = {
 
 const STORAGE_KEY = "cava_anita_jano_v1";  // mantengo la misma key, así migra del v1
 const APIKEY_STORAGE = "cava_gemini_apikey";
+const GCSE_KEY_STORAGE = "cava_gcse_key";   // Google Programmable Search: API key
+const GCSE_CX_STORAGE = "cava_gcse_cx";     // Google Programmable Search: Search Engine ID (cx)
 const ANTHROPIC_KEY_STORAGE = "cava_anthropic_apikey";
 const AI_MODEL_STORAGE = "cava_ai_model";
 const CLAUDE_MODELS = { sonnet: "claude-sonnet-4-6", haiku: "claude-haiku-4-5-20251001" };
@@ -361,6 +363,28 @@ async function callAnthropic({ apiKey, model = DEFAULT_CLAUDE_MODEL, maxTokens =
   return text;
 }
 
+// Comprime/redimensiona una imagen (dataURL) para no inflar el Gist/localStorage al guardarla como foto.
+function compressImageDataUrl(dataUrl, maxDim = 700, quality = 0.7) {
+  return new Promise((resolve) => {
+    try {
+      const img = new Image();
+      img.onload = () => {
+        let w = img.width, h = img.height;
+        if (w > maxDim || h > maxDim) {
+          if (w >= h) { h = Math.round(h * maxDim / w); w = maxDim; }
+          else { w = Math.round(w * maxDim / h); h = maxDim; }
+        }
+        const c = document.createElement("canvas");
+        c.width = w; c.height = h;
+        c.getContext("2d").drawImage(img, 0, 0, w, h);
+        resolve(c.toDataURL("image/jpeg", quality));
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    } catch (e) { resolve(dataUrl); }
+  });
+}
+
 function App() {
   const [db, setDb] = useState(null);
   const [tab, setTab] = useState("inventario");
@@ -394,6 +418,14 @@ function App() {
   const enrichStopRef = useRef(false);
   const [scanning, setScanning] = useState(false);
   const [scanImages, setScanImages] = useState([]);
+  const [lightbox, setLightbox] = useState(null); // src de la foto ampliada
+  const [gcseKey, setGcseKey] = useState(() => localStorage.getItem(GCSE_KEY_STORAGE) || "");
+  const [gcseKeyDraft, setGcseKeyDraft] = useState("");
+  const [gcseCx, setGcseCx] = useState(() => localStorage.getItem(GCSE_CX_STORAGE) || "");
+  const [gcseCxDraft, setGcseCxDraft] = useState("");
+  const [photoResults, setPhotoResults] = useState([]);
+  const [photoSearching, setPhotoSearching] = useState(false);
+  const [photoMsg, setPhotoMsg] = useState("");
   const [apiKey, setApiKey] = useState(() => localStorage.getItem(APIKEY_STORAGE) || "");
   const [apiKeyDraft, setApiKeyDraft] = useState("");
   const [anthropicKey, setAnthropicKey] = useState(() => localStorage.getItem(ANTHROPIC_KEY_STORAGE) || "");
@@ -527,6 +559,33 @@ function App() {
     localStorage.setItem(AI_MODEL_STORAGE, m);
     setAiModel(m);
   };
+  const saveGcse = () => {
+    const k = gcseKeyDraft.trim(), c = gcseCxDraft.trim();
+    if (k) { localStorage.setItem(GCSE_KEY_STORAGE, k); setGcseKey(k); setGcseKeyDraft(""); }
+    if (c) { localStorage.setItem(GCSE_CX_STORAGE, c); setGcseCx(c); setGcseCxDraft(""); }
+  };
+  const removeGcse = () => {
+    localStorage.removeItem(GCSE_KEY_STORAGE); localStorage.removeItem(GCSE_CX_STORAGE);
+    setGcseKey(""); setGcseCx("");
+  };
+  // Busca fotos de la etiqueta en la web (Google Programmable Search). Guarda la URL (no base64).
+  const buscarFotoEtiqueta = async () => {
+    if (!gcseKey || !gcseCx) { setPhotoMsg("⚠ Configurá la API key y el ID del buscador de Google (Configuración)."); return; }
+    const q = [form.nombre, form.bodega, form.anada, "vino etiqueta botella"].filter(Boolean).join(" ");
+    if (!form.nombre.trim() && !form.bodega.trim()) { setPhotoMsg("⚠ Cargá nombre o bodega primero."); return; }
+    setPhotoSearching(true); setPhotoMsg(""); setPhotoResults([]);
+    try {
+      const url = `https://www.googleapis.com/customsearch/v1?key=${encodeURIComponent(gcseKey)}&cx=${encodeURIComponent(gcseCx)}&searchType=image&num=8&q=${encodeURIComponent(q)}`;
+      const r = await fetch(url);
+      const data = await r.json();
+      if (!r.ok) throw new Error(data?.error?.message || `HTTP ${r.status}`);
+      const items = (data.items || []).map(it => ({ link: it.link, thumb: (it.image && it.image.thumbnailLink) || it.link }));
+      if (!items.length) setPhotoMsg("No encontré imágenes para esa etiqueta.");
+      setPhotoResults(items);
+    } catch (e) { setPhotoMsg("✕ Error: " + (e.message || e)); }
+    setPhotoSearching(false);
+  };
+  const elegirFoto = (link) => { setForm(f => ({ ...f, foto: link })); setPhotoResults([]); setPhotoMsg("✓ Foto elegida."); };
 
   // ── Proveedor de IA unificado: Anthropic (Claude) principal, Gemini fallback ──
   // Devuelve el objeto JSON parseado. Si Anthropic falla o vuelve vacío, reintenta con Gemini.
@@ -839,15 +898,20 @@ Reglas:
       const m = text.match(/\{[\s\S]*\}/);
       if (!m) { setScanError("Respuesta sin JSON: " + text.slice(0,200)); setScanning(false); return; }
       const parsed = JSON.parse(m[0]);
+      // Guardar la primera foto escaneada como foto del vino (comprimida) si no hay una ya cargada
+      let fotoFromScan = "";
+      const firstPreview = scanImages[0] && (scanImages[0].preview || `data:${scanImages[0].type};base64,${scanImages[0].data}`);
+      if (firstPreview) { try { fotoFromScan = await compressImageDataUrl(firstPreview); } catch(e){} }
       setForm(f => {
         const next = { ...f };
         ["nombre","bodega","anada","tipo","cepa","pais","provincia","alcohol","tempServicio","guarda","maridaje","precio","ojo","nariz","boca","final","notas"].forEach(k => {
           if (parsed[k] && (!f[k] || String(f[k]).trim()==="")) next[k] = parsed[k];
         });
+        if (fotoFromScan && (!f.foto || String(f.foto).trim()==="")) next.foto = fotoFromScan;
         return next;
       });
       setScanImages([]);
-      setSearchInfoMsg("✓ Ficha cargada desde la foto. Revisá los campos antes de guardar.");
+      setSearchInfoMsg("✓ Ficha y foto cargadas desde la etiqueta. Revisá los campos antes de guardar.");
     } catch (err) {
       setScanError("Error: " + (err?.message || String(err)));
     }
@@ -1377,7 +1441,7 @@ Reglas:
     return sinUb || group.bottles[0];
   };
   const openFormEdit = (w) => { setForm({...emptyForm(), ...w}); setFormErr(""); setModal({mode:"form",editId:w.id}); };
-  const closeModal = () => { setModal(null); setScanImages([]); setScanError(""); setSearchInfoMsg(""); };
+  const closeModal = () => { setModal(null); setScanImages([]); setScanError(""); setSearchInfoMsg(""); setPhotoResults([]); setPhotoMsg(""); };
 
   const saveWine = async () => {
     if (!form.nombre.trim() || !form.bodega.trim()) { setFormErr("Nombre y Bodega son obligatorios."); return; }
@@ -1948,6 +2012,25 @@ Reglas:
               <div style={{fontSize:11,color:"#bbb",marginTop:8}}>Conseguila gratis en <span style={{color:"#888"}}>aistudio.google.com/apikey</span> (1.500 requests/día sin costo).</div>
             </div>
 
+            {/* BUSCADOR DE FOTOS (Google Programmable Search) */}
+            <div style={{background:"#fff",border:"1px solid #E5E5E5",borderRadius:10,padding:"18px 20px"}}>
+              <div style={{fontWeight:600,fontSize:14,marginBottom:4}}>Buscar fotos de etiquetas (Google)</div>
+              <div style={{fontSize:12,color:"#aaa",marginBottom:12}}>Para el botón "Buscar foto (web)" en la ficha. Usa Google Programmable Search (100 búsquedas/día gratis). Guarda solo el enlace de la imagen, no la imagen.</div>
+              {(gcseKey && gcseCx) ? (
+                <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                  <code style={{background:"#F7F7F7",padding:"6px 10px",borderRadius:6,fontSize:12,color:"#1A1A1A"}}>● Configurado (…{gcseKey.slice(-4)} · cx …{gcseCx.slice(-4)})</code>
+                  <button onClick={removeGcse} style={{padding:"6px 12px",background:"#fff",color:"#1A1A1A",border:"1px solid #E5E5E5",borderRadius:6,fontSize:12,cursor:"pointer"}}>Quitar</button>
+                </div>
+              ) : (
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  <input type="password" value={gcseKeyDraft} onChange={e=>setGcseKeyDraft(e.target.value)} placeholder="API key de Google (AIza…)" style={{padding:"8px 10px",border:"1px solid #E5E5E5",borderRadius:6,fontSize:13,outline:"none",fontFamily:"monospace"}}/>
+                  <input type="text" value={gcseCxDraft} onChange={e=>setGcseCxDraft(e.target.value)} placeholder="Search Engine ID (cx)" style={{padding:"8px 10px",border:"1px solid #E5E5E5",borderRadius:6,fontSize:13,outline:"none",fontFamily:"monospace"}}/>
+                  <button onClick={saveGcse} disabled={!gcseKeyDraft.trim()||!gcseCxDraft.trim()} style={{alignSelf:"flex-start",padding:"8px 16px",background:(gcseKeyDraft.trim()&&gcseCxDraft.trim())?"#1A1A1A":"#ccc",color:"#fff",border:"none",borderRadius:6,fontSize:13,cursor:(gcseKeyDraft.trim()&&gcseCxDraft.trim())?"pointer":"not-allowed"}}>Guardar</button>
+                </div>
+              )}
+              <div style={{fontSize:11,color:"#bbb",marginTop:8,lineHeight:1.5}}>1) API key en <span style={{color:"#888"}}>console.cloud.google.com</span> (habilitá "Custom Search API"). 2) Motor de búsqueda en <span style={{color:"#888"}}>programmablesearchengine.google.com</span> con "Buscar en toda la web" + Imágenes activadas; copiá el ID (cx).</div>
+            </div>
+
             {/* COMPLETAR FICHAS EN LOTE */}
             {(() => {
               const pendientes = enrichCandidates().length;   // nuevos + reintentos vencidos
@@ -2165,7 +2248,7 @@ Reglas:
                       </div>
                     </div>}
                     {w.notas&&<div style={{gridColumn:"1/-1"}}><div style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#bbb",textTransform:"uppercase",marginBottom:2}}>Notas adicionales</div><div style={{fontSize:13,color:"#555"}}>{w.notas}</div></div>}
-                    {w.foto&&<div style={{gridColumn:"1/-1"}}><div style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#bbb",textTransform:"uppercase",marginBottom:6}}>Foto</div><img src={w.foto} style={{width:"100%",maxHeight:200,objectFit:"contain",borderRadius:8,border:"1px solid #E5E5E5"}}/></div>}
+                    {w.foto&&<div style={{gridColumn:"1/-1"}}><div style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",color:"#bbb",textTransform:"uppercase",marginBottom:6}}>Foto</div><img src={w.foto} onClick={()=>setLightbox(w.foto)} title="Clic para agrandar" style={{width:"100%",maxHeight:240,objectFit:"contain",borderRadius:8,border:"1px solid #E5E5E5",cursor:"zoom-in"}}/></div>}
                   </div>
                   {w.cava!=="caja"&&w.row!==""&&w.row!==undefined&&w.row>=0&&(()=>{
                     const dc = cavaConf(w.cava);
@@ -2242,21 +2325,39 @@ Reglas:
 
                   <SectionLabel>Foto</SectionLabel>
                   <div style={{marginBottom:12}}>
-                    {form.foto ? (
-                      <div style={{position:"relative",display:"inline-block"}}>
-                        <img src={form.foto} style={{width:100,height:100,objectFit:"cover",borderRadius:8,border:"1px solid #E5E5E5"}}/>
+                    {form.foto && (
+                      <div style={{position:"relative",display:"inline-block",marginBottom:8}}>
+                        <img src={form.foto} onClick={()=>setLightbox(form.foto)} title="Clic para agrandar" style={{width:100,height:100,objectFit:"cover",borderRadius:8,border:"1px solid #E5E5E5",cursor:"zoom-in"}}/>
                         <button onClick={()=>setForm(f=>({...f,foto:""}))} style={{position:"absolute",top:-6,right:-6,width:20,height:20,borderRadius:"50%",background:"#1A1A1A",color:"#fff",border:"none",fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
                       </div>
-                    ) : (
-                      <label style={{display:"inline-flex",alignItems:"center",gap:6,padding:"8px 14px",border:"1px dashed #E5E5E5",borderRadius:7,cursor:"pointer",fontSize:12,color:"#aaa"}}>
-                        📷 Agregar foto
+                    )}
+                    <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                      <label style={{display:"inline-flex",alignItems:"center",gap:6,padding:"8px 14px",border:"1px dashed #E5E5E5",borderRadius:7,cursor:"pointer",fontSize:12,color:"#888"}}>
+                        📷 {form.foto?"Cambiar foto":"Agregar foto"}
                         <input type="file" accept="image/*" capture="environment" onChange={e=>{
                           const file = e.target.files[0]; if (!file) return;
                           const r = new FileReader();
-                          r.onload = ev => setForm(f=>({...f,foto:ev.target.result}));
+                          r.onload = async ev => { const compressed = await compressImageDataUrl(ev.target.result); setForm(f=>({...f,foto:compressed})); };
                           r.readAsDataURL(file);
                         }} style={{display:"none"}}/>
                       </label>
+                      <button type="button" onClick={buscarFotoEtiqueta} disabled={photoSearching} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"8px 14px",border:"1px solid #E5E5E5",borderRadius:7,cursor:photoSearching?"not-allowed":"pointer",fontSize:12,color:"#555",background:"#F7F7F7"}}>
+                        ✨ {photoSearching?"Buscando…":"Buscar foto (web)"}
+                      </button>
+                    </div>
+                    {photoMsg && <div style={{marginTop:8,fontSize:11,color:photoMsg.startsWith("✓")?"#3A6B2A":(photoMsg.startsWith("✕")||photoMsg.startsWith("⚠")?"#7B1F2A":"#888")}}>{photoMsg}</div>}
+                    {photoResults.length>0 && (
+                      <div style={{marginTop:10}}>
+                        <div style={{fontSize:10,color:"#aaa",marginBottom:6}}>Elegí una imagen (se guarda el enlace):</div>
+                        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                          {photoResults.map((p,i)=>(
+                            <img key={i} src={p.thumb} title="Usar esta foto" onClick={()=>elegirFoto(p.link)}
+                                 style={{width:72,height:72,objectFit:"cover",borderRadius:6,border:"1px solid #E5E5E5",cursor:"pointer"}}
+                                 onMouseEnter={e=>e.currentTarget.style.borderColor="#1A1A1A"}
+                                 onMouseLeave={e=>e.currentTarget.style.borderColor="#E5E5E5"}/>
+                          ))}
+                        </div>
+                      </div>
                     )}
                   </div>
 
@@ -2378,6 +2479,12 @@ Reglas:
               <button onClick={()=>{const fn=confirmModal.onOk;setConfirmModal(null);fn();}} style={{padding:"8px 18px",background:"#1A1A1A",color:"#fff",border:"none",borderRadius:7,fontSize:13,cursor:"pointer",fontWeight:500}}>Confirmar</button>
             </div>
           </div>
+        </div>
+      )}
+      {lightbox&&(
+        <div onClick={()=>setLightbox(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:16,cursor:"zoom-out"}}>
+          <img src={lightbox} style={{maxWidth:"96vw",maxHeight:"92vh",objectFit:"contain",borderRadius:8,boxShadow:"0 10px 40px rgba(0,0,0,0.5)"}}/>
+          <button onClick={()=>setLightbox(null)} style={{position:"fixed",top:16,right:18,width:36,height:36,borderRadius:"50%",background:"rgba(255,255,255,0.15)",color:"#fff",border:"none",fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
         </div>
       )}
     </div>

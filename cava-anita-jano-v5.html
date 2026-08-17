@@ -404,10 +404,16 @@ function describeNetworkError(e) {
   const msg = String((e && e.message) || e);
   const esFalloDeRed = (e instanceof TypeError) || /load failed|failed to fetch|networkerror|network request failed/i.test(msg);
   if (!esFalloDeRed) return msg;
-  if (location.protocol === "file:") {
-    return "no se pudo conectar con GitHub. Estás abriendo la app como archivo local (file://), y el navegador bloquea el pedido por CORS antes de enviarlo. Solución: servir la app por http(s), por ejemplo con GitHub Pages.";
+  // El origen es el dato que decide el diagnóstico, así que lo mostramos siempre.
+  const proto = location.protocol;
+  const origen = (location.origin && location.origin !== "null") ? location.origin : proto + "//";
+  if (proto === "file:") {
+    return `no se pudo conectar con GitHub. Estás abriendo la app como archivo local (${origen}), y el navegador bloquea el pedido por CORS antes de enviarlo. Solución: servirla por http(s), por ejemplo con GitHub Pages.`;
   }
-  return "no se pudo conectar con GitHub. Revisá la conexión, el Relay privado de iCloud, el Modo Restringido o algún bloqueador de contenido.";
+  if (proto === "blob:" || proto === "data:" || proto === "about:") {
+    return `no se pudo conectar con GitHub. La app corre dentro de un visor con origen restringido (${origen}), que bloquea los pedidos externos. Abrila directamente en Safari o Chrome.`;
+  }
+  return `no se pudo conectar con GitHub desde ${origen}. Causas posibles: sin conexión, Relay privado de iCloud, Modo Restringido, un bloqueador de contenido, o una política de seguridad del visor donde la abriste.`;
 }
 
 function App() {

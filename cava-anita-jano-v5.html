@@ -385,6 +385,31 @@ function compressImageDataUrl(dataUrl, maxDim = 700, quality = 0.7) {
   });
 }
 
+// Peso real (en bytes) de la imagen dentro de un dataURL base64.
+function dataUrlBytes(s) {
+  if (typeof s !== "string" || !s.startsWith("data:")) return 0;
+  const i = s.indexOf(",");
+  return i < 0 ? 0 : Math.round((s.length - i - 1) * 3 / 4);
+}
+
+function fmtBytes(b) {
+  if (b < 1024) return b + " B";
+  if (b < 1024 * 1024) return (b / 1024).toFixed(0) + " KB";
+  return (b / 1024 / 1024).toFixed(1) + " MB";
+}
+
+// fetch() rechaza con un TypeError cuando el pedido nunca llegó a salir (red caída, CORS, bloqueador).
+// Safari lo reporta como "Load failed", que no le dice nada a nadie. Acá lo traducimos a algo accionable.
+function describeNetworkError(e) {
+  const msg = String((e && e.message) || e);
+  const esFalloDeRed = (e instanceof TypeError) || /load failed|failed to fetch|networkerror|network request failed/i.test(msg);
+  if (!esFalloDeRed) return msg;
+  if (location.protocol === "file:") {
+    return "no se pudo conectar con GitHub. Estás abriendo la app como archivo local (file://), y el navegador bloquea el pedido por CORS antes de enviarlo. Solución: servir la app por http(s), por ejemplo con GitHub Pages.";
+  }
+  return "no se pudo conectar con GitHub. Revisá la conexión, el Relay privado de iCloud, el Modo Restringido o algún bloqueador de contenido.";
+}
+
 function App() {
   const [db, setDb] = useState(null);
   const [tab, setTab] = useState("inventario");
@@ -710,7 +735,7 @@ function App() {
       setGistStatus(`✓ Subido (${snapshot.wines.length} stock · ${snapshot.consumos.length} hist).`);
       return true;
     } catch (e) {
-      setGistStatus(`✕ Error subiendo: ${e.message}`);
+      setGistStatus(`✕ Error subiendo: ${describeNetworkError(e)}`);
       return false;
     }
   };
@@ -777,10 +802,49 @@ function App() {
       }
       return mergedHash !== localHash;
     } catch (e) {
-      if (!silent) setGistStatus(`✕ Error bajando: ${e.message}`);
+      if (!silent) setGistStatus(`✕ Error bajando: ${describeNetworkError(e)}`);
       return false;
     }
   };
+  // Las fotos viejas se guardaron sin comprimir (la compresión se agregó después) y son casi todo
+  // el peso de cava.json. Un Gist de más de 1 MB lo trunca la API y obliga a un segundo fetch al
+  // raw_url, además de hacer cada sync lenta. Esto las recomprime una sola vez, in situ.
+  const [optimizando, setOptimizando] = useState(false);
+  const optimizarFotos = async () => {
+    const base = dbRef.current || db;
+    if (!base || !Array.isArray(base.wines)) return;
+    setOptimizando(true);
+    setGistStatus("⏳ Optimizando fotos…");
+    let antes = 0, despues = 0, tocadas = 0;
+    const wines = [];
+    for (const w of base.wines) {
+      const bytes = dataUrlBytes(w.foto);
+      if (!bytes) { wines.push(w); continue; }   // sin foto, o es una URL de la web: no se toca
+      antes += bytes;
+      let nueva = null;
+      try { nueva = await compressImageDataUrl(w.foto); } catch (e) { nueva = null; }
+      const nb = dataUrlBytes(nueva);
+      // Recomprimir un JPEG que ya estaba chico puede agrandarlo: solo reemplazamos si achica de verdad.
+      if (nb > 0 && nb < bytes * 0.95) {
+        despues += nb;
+        tocadas++;
+        // updatedAt a mano para que el merge propague la versión liviana al resto de los dispositivos.
+        wines.push({ ...w, foto: nueva, updatedAt: new Date().toISOString() });
+      } else {
+        despues += bytes;
+        wines.push(w);
+      }
+    }
+    if (!tocadas) {
+      setGistStatus("✓ Las fotos ya estaban optimizadas.");
+      setOptimizando(false);
+      return;
+    }
+    await persist({ ...base, wines }, { stamp: false });
+    setGistStatus(`✓ ${tocadas} foto(s) optimizadas: ${fmtBytes(antes)} → ${fmtBytes(despues)}. Ahora tocá "Forzar subida".`);
+    setOptimizando(false);
+  };
+
   // API expuesta a la UI (bloqueante con confirm para "bajar manual")
   const subirAGist = async () => {
     setGistBusy(true);
@@ -2164,7 +2228,20 @@ Reglas:
               <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
                 <button onClick={subirAGist} disabled={!gistToken||!gistId||gistBusy} style={{padding:"8px 14px",background:"#fff",color:(!gistToken||!gistId||gistBusy)?"#ccc":"#666",border:"1px solid #E5E5E5",borderRadius:6,fontSize:12,cursor:(!gistToken||!gistId||gistBusy)?"not-allowed":"pointer"}}>⬆ Forzar subida</button>
                 <button onClick={bajarDeGist} disabled={!gistToken||!gistId||gistBusy} style={{padding:"8px 14px",background:"#fff",color:(!gistToken||!gistId||gistBusy)?"#ccc":"#666",border:"1px solid #E5E5E5",borderRadius:6,fontSize:12,cursor:(!gistToken||!gistId||gistBusy)?"not-allowed":"pointer"}}>⬇ Forzar bajada (sobreescribe)</button>
+                <button onClick={optimizarFotos} disabled={optimizando} style={{padding:"8px 14px",background:"#fff",color:optimizando?"#ccc":"#666",border:"1px solid #E5E5E5",borderRadius:6,fontSize:12,cursor:optimizando?"not-allowed":"pointer"}}>🗜 {optimizando?"Optimizando…":"Optimizar fotos"}</button>
               </div>
+
+              {/* Peso del respaldo: arriba de 1 MB la API de GitHub trunca el archivo y la sync se vuelve lenta. */}
+              {db && (() => {
+                const bytes = new Blob([JSON.stringify(db)]).size;
+                const pesado = bytes > 1024 * 1024;
+                return (
+                  <div style={{fontSize:12,color:pesado?"#b45309":"#888",background:pesado?"#fffbeb":"#FAFAFA",border:`1px solid ${pesado?"#fde68a":"#E5E5E5"}`,borderRadius:5,padding:"7px 10px",marginBottom:8}}>
+                    Tamaño del respaldo: <strong>{fmtBytes(bytes)}</strong>
+                    {pesado && " · pasa 1 MB, GitHub lo trunca y cada sync se vuelve lenta. Tocá “Optimizar fotos”."}
+                  </div>
+                );
+              })()}
 
               {gistStatus&&<div style={{fontSize:12,color:gistStatus.startsWith("✓")?"#1A1A1A":(gistStatus.startsWith("⏳")?"#888":(gistStatus.startsWith("⚠")?"#b45309":"#1A1A1A")),padding:"7px 10px",background:gistStatus.startsWith("✓")?"#F7F7F7":(gistStatus.startsWith("⏳")?"#fafafa":(gistStatus.startsWith("⚠")?"#fffbeb":"#FAFAFA")),borderRadius:5,border:`1px solid ${gistStatus.startsWith("✓")?"#1A1A1A":(gistStatus.startsWith("⏳")?"#eee":(gistStatus.startsWith("⚠")?"#fde68a":"#E5E5E5"))}`,marginBottom:8}}>{gistStatus}</div>}
 
